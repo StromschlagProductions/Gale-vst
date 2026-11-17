@@ -47,6 +47,37 @@ public:
     }
 };
 
+// BLOW: Wind an/aus (Schalter mit LED, automatisierbar)
+class BlowButton : public juce::ToggleButton
+{
+public:
+    void paintButton (juce::Graphics& g, bool over, bool) override
+    {
+        auto r = getLocalBounds().toFloat().reduced (0.5f);
+        const bool on = getToggleState();
+        const auto accent = findColour (juce::TextButton::buttonOnColourId);
+        auto base = findColour (juce::TextButton::buttonColourId);
+        g.setColour (on ? accent.withAlpha (0.22f) : over ? base.brighter (0.08f) : base);
+        g.fillRoundedRectangle (r, 6.0f);
+        g.setColour (on ? accent : findColour (juce::ComboBox::outlineColourId));
+        g.drawRoundedRectangle (r, 6.0f, on ? 2.0f : 1.0f);
+
+        const auto c = juce::Point<float> (r.getX() + 24.0f, r.getCentreY());
+        g.setColour (findColour (juce::ComboBox::outlineColourId));
+        g.fillEllipse (c.x - 8.0f, c.y - 8.0f, 16.0f, 16.0f);
+        g.setColour (accent.withAlpha (on ? 1.0f : 0.18f));
+        g.fillEllipse (c.x - 6.0f, c.y - 6.0f, 12.0f, 12.0f);
+        if (on)
+        {
+            g.setColour (accent.withAlpha (0.35f));
+            g.drawEllipse (c.x - 10.0f, c.y - 10.0f, 20.0f, 20.0f, 2.0f);
+        }
+        g.setColour (findColour (juce::TextButton::textColourOffId));
+        g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
+        g.drawText (juce::String (juce::CharPointer_UTF8 (on ? "BLOW  \xc2\xb7  AN" : "BLOW  \xc2\xb7  AUS")), getLocalBounds().withTrimmedLeft (44), juce::Justification::centredLeft);
+    }
+};
+
 // TRIGGER GUST: solange gedrueckt, steht der Automationsparameter auf 1; die LED zeigt laufende Boeen
 class GustButton : public juce::TextButton
 {
@@ -128,6 +159,8 @@ private:
     juce::Label envLabel, envNote, triggerNote;
     std::unique_ptr<juce::ParameterAttachment> envAttachment;
     GustButton triggerButton;
+    BlowButton blowButton;
+    std::unique_ptr<APVTS::ButtonAttachment> blowAttachment;
     juce::TextButton themeButton;
     juce::TextButton helpButton;
     HelpPanel helpScroll;

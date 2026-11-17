@@ -51,6 +51,8 @@ verkleinern. Das Seitenverhältnis bleibt dabei fest.
 - GALE kommt auf einen **FX-Kanal oder Bus**. Es braucht kein Eingangssignal und kein MIDI: Der Wind entsteht selbst.
   Was am Eingang anliegt, läuft unverändert durch, der Wind kommt dazu. Von dort gehst du wie gewohnt weiter, zum
   Beispiel in Spatial Lab für den Raum der Szene.
+- **BLOW** schaltet den Wind an und aus, weich ein- und ausgeblendet und ebenfalls automatisierbar. So beginnt und endet der
+  Wind in einer langen Szene genau dort, wo er gebraucht wird.
 - **GUST / INTENSITY** ist der Regler, den du automatisierst: die laufende Windstärke der Szene.
 - **TRIGGER GUST** setzt die einzelne, gezielte Böe. Der Taster ist auch ein Automationsparameter. Ein kurzer Sprung von 0 auf 1
   löst die Böe genau dort aus, ihren Verlauf (anschwellen, abklingen) macht GALE selbst. Live geht es auch: Automation auf
@@ -63,7 +65,7 @@ verkleinern. Das Seitenverhältnis bleibt dabei fest.
 | ENVIRONMENT | Wann nehmen | Klang |
 |---|---|---|
 | Open Land | Steppe, Küste, Outback, offene Fläche | Breites, tiefes Rauschen mit weiten, langsamen Druckwellen |
-| Trees | Büsche, Gras, Laub | Feineres Rascheln in den Hochmitten, lebhaft mit der Böe |
+| Trees | Bäume, Büsche, Laub | Weiches Rauschen vieler Blätter; mehrere Äste wogen unabhängig voneinander, mit der Böe schneller und kräftiger |
 | Rocks | Felswand, Schlucht, Canyon | Hohle Resonanzen, die bei steigender Windstärke nach oben jaulen |
 | Cracks | Türspalt, Fensterritze, Zugluft | Schmalbandiges, schneidendes Pfeifen und Luftzug |
 
@@ -77,14 +79,15 @@ Beim Umschalten blendet GALE weich über, die Umgebung lässt sich also auch mit
 |---|---|
 | ENVIRONMENT | Open Land, Trees, Rocks oder Cracks (siehe oben) |
 | GUST / INTENSITY | **der Hauptregler**: laufende Windstärke. Steuert gemeinsam Lautstärke, Luftdruck, Pfeifton und Stereo-Bewegung. Ganz unten bleibt nur der leise Grundwind |
+| BLOW | Wind an oder aus (Schalter mit LED, zugleich Automationsparameter). Blendet in ca. 1,5 s ein und legt sich beim Ausschalten in ca. 2,5 s |
 | TRIGGER GUST | löst eine einzelne Böe aus (Taster mit LED, zugleich Automationsparameter) |
 
 **Unten, in drei Kästen**
 
 | Kasten | Regler | Wirkung |
 |---|---|---|
-| **CHARACTER** | SHELTER | 0 % draußen (volles Spektrum, direkte Turbulenzen), ca. 50 % hinter Fenster oder Zeltwand (Höhen gedämpft, tiefes Wummern der Scheibe), 100 % tief im Gebäude (starker Tiefpass, Sub-Grollen, Pfeifen in den Ritzen). Mit Abstand zum Freien kommt das Rappeln und Klappern von Blech dazu |
-| | HOWL | Stärke von Pfeifen und Jaulen bei Böen. Der Klang folgt ENVIRONMENT; bei hohem SHELTER bestimmt HOWL auch das Pfeifen in den Ritzen |
+| **CHARACTER** | SHELTER | 0 % draußen (volles Spektrum, direkte Turbulenzen), ca. 50 % hinter Fenster oder Zeltwand (Höhen gedämpft, tiefes Wummern der Scheibe), 100 % tief im Gebäude (starker Tiefpass, tiefes Grollen, Pfeifen in den Ritzen). Mit Abstand zum Freien kommt das Rappeln von großem Blech dazu: Wellblech und Blechwände mit tiefen, lang nachschwingenden Schlägen und schlackernden Platten. Der Wind drückt als ungleichmäßiges Grollen gegen die Wände |
+| | HOWL | Heulen und Pfeifen: 0 % reines Rauschen, 100 % ein deutlicher, wandernder Ton, der mit den Böen steigt. Der Klang folgt ENVIRONMENT, die Gesamtlautstärke bleibt etwa gleich. Bei hohem SHELTER bestimmt HOWL auch das Pfeifen in den Ritzen |
 | **WIND** | BASE LEVEL | Lautstärke des dauerhaften Grundwinds, der digitale Stille verhindert (in dB, entspricht etwa dessen Lautheit; ganz links aus) |
 | | AUTO GUST | Häufigkeit und Kraft zufälliger Böen (ganz links aus) |
 | **MASTER** | OUTPUT | Pegel des Windes (der Eingang bleibt unberührt) |
@@ -119,11 +122,13 @@ dahin wird der Wind dumpfer, das Wummern der Wand kommt, zuletzt das tiefe Groll
 
 Die Versionsnummer steht in der Datei `VERSION`, im Plugin-Kopf und im Namen der Release. Sie wird bei jeder Änderung hochgezählt (1.0, 1.1, 1.2 …).
 
+- **1.1** – BLOW (Wind an/aus mit weichem Ein- und Ausblenden), Trees neu als weiches Blätterrauschen, HOWL deutlich hörbar, Blech-Rappeln als großes, tiefes Wellblech, Druck auf die Wände nach dem Rauschkern von Airwindows „Noise“. [Release-Hinweise](docs/releases/1.1.md).
 - **1.0** – Erste Version: GUST / INTENSITY, TRIGGER GUST, AUTO GUST, vier Umgebungen, SHELTER mit Wand-Wummern, Sub-Grollen, Ritzen-Pfeifen und Blech-Rappeln, HOWL, BASE LEVEL, OUTPUT, sieben Presets. Hell/Dunkel, skalierbare Oberfläche, Hilfe. [Release-Hinweise](docs/releases/1.0.md).
 
 ## Aufbau
 
 - `Source/GaleDSP.h`: Klang-Engine (reines C++ ohne JUCE, samplefrei)
+- `THIRD_PARTY_NOTICES.md`: Lizenztext für den übernommenen Airwindows-Rauschkern
 - `Source/PluginProcessor.*`, `Source/PluginEditor.*`: JUCE-Plugin und Oberfläche
 - `tools/render_demo.cpp`, `tools/analyze.py`: rendert Hörbeispiele aus der echten Engine und misst sie (Lautheit, Spitze, Stereo/Mono, Spektrogramme)
 - `.github/workflows/build.yml`: Windows-Bau mit Tests und Stabilitätstest (pluginval) bei jeder Änderung; Release nur von Hand mit Haken „publish“, siehe [docs/CI.md](docs/CI.md) und [docs/PUBLISHING.md](docs/PUBLISHING.md)
@@ -149,7 +154,9 @@ Ob es gut klingt, entscheidet am Ende das Ohr. Deshalb geht jede Version auch du
 
 Ein großes Dankeschön an **Markus Hildebrandt** von SOUNDJOB. Markus betreibt ein eigenes Tonstudio und hat weit mehr Hörspiele produziert als ich. Er testet GALE im Studioalltag und gibt mir ehrliches, fachkundiges Feedback. Ein Plugin für Wind steht und fällt mit dem Gehör, und seine Erfahrung ist dafür unersetzlich.
 
-Gebaut mit [JUCE](https://juce.com) 8.
+Gebaut mit [JUCE](https://juce.com) 8. Das tiefe Druck-Rauschen hinter Wänden beruht auf dem Rauschkern von
+[Airwindows](https://github.com/airwindows/airwindows) „Noise“ von Chris Johnson (MIT-Lizenz) – handgemachte, freie
+Plugins, von denen ich viel halte.
 
 ---
 

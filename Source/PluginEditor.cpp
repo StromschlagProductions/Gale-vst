@@ -11,7 +11,7 @@ const char* kUiHProp = "uiH";
 const char* kEnvShort[gale::kNumEnvs] = { "Open Land", "Trees", "Rocks", "Cracks" };
 const char* kEnvNote[gale::kNumEnvs] = {
     "Weite Fl\xc3\xa4" "che, Steppe, K\xc3\xbcste: tiefes Rauschen, weite Druckwellen",
-    "Gras, Gestr\xc3\xa4uch, Laub: feines Rascheln in den Hochmitten",
+    "B\xc3\xa4ume, B\xc3\xbcsche, Laub: weiches Rauschen der Bl\xc3\xa4tter",
     "Fels und Schlucht: hohl, jault bei Windst\xc3\xa4rke nach oben",
     "Ritzen, T\xc3\xbcren, Fenster: schneidendes Pfeifen und Zugluft" };
 }
@@ -48,8 +48,11 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
     head ("Einrichten");
     body ("GALE erzeugt den Wind selbst, ohne Samples. Am besten auf einen FX-Kanal oder Bus legen und von dort in Spatial Lab oder den Szenenbus schicken. Ein Eingang ist nicht nötig; was am Eingang anliegt, läuft unverändert durch, der Wind kommt dazu. MIDI wird nicht gebraucht, alles geht über Automation.");
 
+    head ("BLOW");
+    body ("Schaltet den Wind an oder aus. Beim Einschalten blendet er in etwa 1,5 Sekunden ein, beim Ausschalten legt er sich in etwa 2,5 Sekunden. Der Schalter ist ein Automationsparameter: So lässt du den Wind in einer langen Szene genau dort beginnen und enden, wo er gebraucht wird. Ein Preset schaltet den Wind immer ein.");
+
     head ("ENVIRONMENT");
-    body ("Charakter des Windes: Open Land (weite Fläche, tiefes Rauschen), Trees (Rascheln in Laub, Büschen, Gras), Rocks (hohl, jault bei Windstärke nach oben) und Cracks (schneidendes Pfeifen und Zugluft durch Ritzen). Beim Umschalten blendet GALE weich über.");
+    body ("Charakter des Windes: Open Land (weite Fläche, tiefes Rauschen), Trees (weiches Rauschen der Blätter in Bäumen und Büschen, mehrere Äste wogen unabhängig), Rocks (hohl, jault bei Windstärke nach oben) und Cracks (schneidendes Pfeifen und Zugluft durch Ritzen). Beim Umschalten blendet GALE weich über.");
 
     head ("GUST / INTENSITY");
     body ("Der Hauptregler und das wichtigste Ziel für die Automation. Er bestimmt die laufende Windstärke und steuert gleichzeitig Lautstärke, Luftdruck, Pfeifton und Stereo-Bewegung. Ganz unten bleibt nur der leise Grundwind.");
@@ -62,10 +65,10 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
     body ("Lässt zufällig Böen vorbeiziehen, ohne dass du etwas zeichnen musst. Der Regler bestimmt, wie oft und wie kräftig (ganz links aus). Gezielte Böen mit TRIGGER GUST kommen zusätzlich dazu.");
 
     head ("SHELTER (Innen und Außen)");
-    body ("Perspektive: draußen = volles Spektrum und direkte Turbulenzen. Bei etwa 50 % bist du hinter Fensterscheibe oder Zeltwand: Höhen werden gedämpft, tiefes Wummern von Scheibe und Wand tritt hervor. Bei 100 % bist du tief im Gebäude: starker Tiefpass, tiefes Grollen und Pfeifen in den Ritzen. Mit Abstand zum Freien beginnt außerdem das Rappeln und Klappern von Blech, Gehäuse und Lamellen, das mit den Böen stärker wird.");
+    body ("Perspektive: draußen = volles Spektrum und direkte Turbulenzen. Bei etwa 50 % bist du hinter Fensterscheibe oder Zeltwand: Höhen werden gedämpft, tiefes Wummern von Scheibe und Wand tritt hervor. Bei 100 % bist du tief im Gebäude: starker Tiefpass, tiefes Grollen und Pfeifen in den Ritzen. Mit Abstand zum Freien beginnt außerdem das Rappeln von großem Blech (Wellblech, Blechdach, Gehäusewände): tiefe, lang nachschwingende Schläge und schlackernde Platten, die mit den Böen häufiger und kräftiger werden. Dazu drückt der Wind als tiefes, ungleichmäßiges Grollen gegen die Wände.");
 
     head ("HOWL");
-    body ("Intensität von Pfeifen und Jaulen bei Böen. Wie es klingt, hängt von ENVIRONMENT ab: tiefes Stöhnen bei Open Land, leises Singen bei Trees, Jaulen nach oben bei Rocks, schneidendes Pfeifen bei Cracks. Bei hohem SHELTER bestimmt HOWL auch das Pfeifen in den Ritzen.");
+    body ("Heulen und Pfeifen des Windes: Bei 0 % reines Rauschen, bei 100 % ein deutlicher, wandernder Ton, der mit den Böen höher und lauter wird. Wie es klingt, hängt von ENVIRONMENT ab: tiefes Stöhnen bei Open Land, Singen in den Ästen bei Trees, hohles Jaulen bei Rocks (dort wird auch der Grundklang resonanter), schneidendes Pfeifen bei Cracks. Die Gesamtlautstärke bleibt dabei etwa gleich. Bei hohem SHELTER bestimmt HOWL auch das Pfeifen in den Ritzen.");
 
     head ("BASE LEVEL");
     body ("Lautstärke des dauerhaften Grundwindes, der digitale Stille in Außenszenen verhindert. Der Wert entspricht etwa der Lautheit des Grundwindes in dB. Ganz links aus.");
@@ -85,7 +88,7 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
     body ("Lars Eickstädt, Stromschlag Audio");
     head ("Beta-Testing");
     body ("Markus Hildebrandt (SOUNDJOB)");
-    note ("Gebaut mit JUCE.");
+    note ("Gebaut mit JUCE. Das tiefe Druck-Rauschen hinter Wänden beruht auf dem Rauschkern von Airwindows \"Noise\" (Chris Johnson, MIT-Lizenz).");
 
     return s;
 }
@@ -127,6 +130,10 @@ GaleEditor::GaleEditor (GaleProcessor& p) : AudioProcessorEditor (&p), processor
         [this] (float v) { updateEnvButtons (juce::roundToInt (v)); }, nullptr);
     envAttachment->sendInitialUpdate();
 
+    // BLOW: Wind an/aus
+    blowAttachment = std::make_unique<APVTS::ButtonAttachment> (processor.apvts, "blow", blowButton);
+    content.addAndMakeVisible (blowButton);
+
     // TRIGGER GUST
     triggerButton.onPress = [this] (bool down)
     {
@@ -138,7 +145,7 @@ GaleEditor::GaleEditor (GaleProcessor& p) : AudioProcessorEditor (&p), processor
         }
     };
     content.addAndMakeVisible (triggerButton);
-    triggerNote.setText (u8 ("B\xc3\xb6" "e auslösen \xe2\x80\x93 auch als Automation oder live einspielen"), juce::dontSendNotification);
+    triggerNote.setText (u8 ("Wind ein/aus und B\xc3\xb6" "e ausl\xc3\xb6sen \xe2\x80\x93 beides auch als Automation"), juce::dontSendNotification);
     triggerNote.setJustificationType (juce::Justification::topLeft);
     content.addAndMakeVisible (triggerNote);
 
@@ -162,10 +169,11 @@ GaleEditor::GaleEditor (GaleProcessor& p) : AudioProcessorEditor (&p), processor
 
     // Tooltips
     gust.slider.setTooltip (u8 ("Laufende Windst\xc3\xa4rke: steuert Lautst\xc3\xa4rke, Luftdruck, Pfeifton und Stereo-Bewegung. Hauptziel f\xc3\xbcr die Automation."));
+    blowButton.setTooltip (u8 ("Wind an oder aus. Er blendet weich ein (ca. 1,5 s) und legt sich beim Ausschalten (ca. 2,5 s). Automatisierbar."));
     triggerButton.setTooltip (u8 ("L\xc3\xb6st eine einzelne B\xc3\xb6" "e aus (anschwellen, abklingen). Auch als Automationsparameter nutzbar."));
     autoGust.slider.setTooltip (u8 ("Zuf\xc3\xa4llige B\xc3\xb6" "en: wie oft und wie kr\xc3\xa4" "ftig. Ganz links aus. Gezielte B\xc3\xb6" "en kommen zus\xc3\xa4tzlich dazu."));
-    shelter.slider.setTooltip (u8 ("Perspektive: 0 % drau\xc3\x9f" "en, ca. 50 % hinter Fenster oder Zeltwand, 100 % tief im Geb\xc3\xa4ude (Keller). Dazu Blech-Rappeln und Wand-Wummern."));
-    howl.slider.setTooltip (u8 ("St\xc3\xa4rke von Pfeifen und Jaulen bei B\xc3\xb6" "en. Der Klang h\xc3\xa4ngt von ENVIRONMENT ab; bei hohem SHELTER auch das Pfeifen in Ritzen."));
+    shelter.slider.setTooltip (u8 ("Perspektive: 0 % drau\xc3\x9f" "en, ca. 50 % hinter Fenster oder Zeltwand, 100 % tief im Geb\xc3\xa4ude (Keller). Dazu tiefes Wellblech-Rappeln und Druck auf die W\xc3\xa4nde."));
+    howl.slider.setTooltip (u8 ("Heulen und Pfeifen: 0 % reines Rauschen, 100 % ein deutlicher, wandernder Ton. Der Klang h\xc3\xa4ngt von ENVIRONMENT ab; bei hohem SHELTER auch das Pfeifen in Ritzen."));
     baseLevel.slider.setTooltip (u8 ("Lautst\xc3\xa4rke des dauerhaften Grundwinds (verhindert digitale Stille). Ganz links aus."));
     output.slider.setTooltip (u8 ("Master-Pegel des Windes. Das Eingangssignal bleibt unver\xc3\xa4ndert."));
     for (int i = 0; i < gale::kNumEnvs; ++i)
@@ -358,8 +366,9 @@ void GaleEditor::resized()
     gust.label.setBounds (270, 84, 140, 18);
     gust.slider.setBounds (278, 104, 124, 118);
 
-    triggerButton.setBounds (432, 108, 224, 52);
-    triggerNote.setBounds (432, 170, 224, 40);
+    blowButton.setBounds (432, 90, 224, 44);
+    triggerButton.setBounds (432, 142, 224, 44);
+    triggerNote.setBounds (432, 190, 224, 30);
 
     auto placeKnob = [] (Knob& k, int x, int y, int cw)
     {

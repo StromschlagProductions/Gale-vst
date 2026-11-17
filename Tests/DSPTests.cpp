@@ -201,5 +201,27 @@ int main()
         for (float x : l) CHECK (std::abs (x) <= 1.001f);
     }
 
-    std::puts ("Gale: rates, environments, block partition, invalid values, passthrough, trigger, stereo/mono, shelter, auto gust, reset, limiter and allocation checks passed");
+    // 12) BLOW: aus = nach dem Ausklingen Stille (Eingang laeuft weiter), Ein-/Ausblenden ohne Spruenge
+    {
+        gale::Engine e; e.prepare (48000);
+        Params p = baseParams(); p.gust = 0.6f; p.shelter = 0.6f; p.autoGust = 1.0f;
+        const int n = 48000 * 10;
+        std::vector<float> l ((size_t) n, 0.0f), r ((size_t) n, 0.0f);
+        for (int at = 0; at < n; at += 128)
+        {
+            p.blow = ! (at >= 48000 * 2 && at < 48000 * 7);   // 2 s an, 5 s aus, dann wieder an
+            e.process (l.data() + at, r.data() + at, std::min (128, n - at), p);
+        }
+        const double on = rmsDb (l, 48000, 96000);
+        CHECK (on > -50.0);
+        CHECK (rmsDb (l, 48000 * 5, 48000 * 7) < -120.0);       // nach 2,5 s Ausklingen still
+        CHECK (rmsDb (l, 48000 * 2 + 4800, 48000 * 2 + 9600) > on - 6.0);   // klingt weich aus, nicht abrupt
+        CHECK (rmsDb (l, 48000 * 7, 48000 * 7 + 2400) < on - 12.0);           // blendet weich ein
+        CHECK (rmsDb (l, 48000 * 9, 48000 * 10) > on - 10.0);                 // ist wieder da
+        float maxStep = 0;
+        for (size_t i = 48000 * 2 - 10; i < (size_t) 48000 * 8; ++i) maxStep = std::max (maxStep, std::abs (l[i] - l[i - 1]));
+        CHECK (maxStep < 0.2f);
+    }
+
+    std::puts ("Gale: rates, environments, block partition, invalid values, passthrough, trigger, stereo/mono, shelter, auto gust, reset, limiter, blow and allocation checks passed");
 }

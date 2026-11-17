@@ -81,7 +81,7 @@ jobs:
 
       - name: ZIP packen
         shell: pwsh
-        run: Compress-Archive -Path "build/Gale_artefacts/Release/VST3/Gale.vst3" -DestinationPath "Gale-VST3-Windows.zip"
+        run: Compress-Archive -Path "build/Gale_artefacts/Release/VST3/Gale.vst3","THIRD_PARTY_NOTICES.md" -DestinationPath "Gale-VST3-Windows.zip"
 
       - name: Release mit ZIP erstellen
         if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'

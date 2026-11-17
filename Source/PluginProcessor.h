@@ -48,7 +48,7 @@ private:
     int currentProgram = 0;
     std::atomic<float>* pGust = nullptr; std::atomic<float>* pTrigger = nullptr; std::atomic<float>* pAuto = nullptr;
     std::atomic<float>* pEnv = nullptr; std::atomic<float>* pShelter = nullptr; std::atomic<float>* pHowl = nullptr;
-    std::atomic<float>* pBase = nullptr; std::atomic<float>* pOut = nullptr;
+    std::atomic<float>* pBase = nullptr; std::atomic<float>* pOut = nullptr; std::atomic<float>* pBlow = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GaleProcessor)
 };

@@ -44,6 +44,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout GaleProcessor::createLayout(
 
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { "gust", 1 }, "Gust / Intensity",
                                                        NormalisableRange<float> (0.0f, 1.0f), 0.3f, percent));
+    layout.add (std::make_unique<AudioParameterBool> (ParameterID { "blow", 1 }, "Blow (Wind an/aus)", true));
     layout.add (std::make_unique<AudioParameterBool> (ParameterID { "trigger", 1 }, "Trigger Gust", false));
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { "autoGust", 1 }, "Auto Gust",
                                                        NormalisableRange<float> (0.0f, 1.0f), 0.0f, autoText));
@@ -73,6 +74,7 @@ GaleProcessor::GaleProcessor()
     pHowl = apvts.getRawParameterValue ("howl");
     pBase = apvts.getRawParameterValue ("baseLevel");
     pOut = apvts.getRawParameterValue ("output");
+    pBlow = apvts.getRawParameterValue ("blow");
     apvts.addParameterListener ("trigger", this);
 }
 
@@ -120,6 +122,7 @@ void GaleProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
     const float base = pBase->load();
     p.baseDb = base <= kBaseMin + 0.05f ? -80.0f : base;   // ganz links = aus
     p.outDb = pOut->load();
+    p.blow = pBlow->load() > 0.5f;
 
     float* left = buffer.getWritePointer (0);
 
@@ -172,6 +175,7 @@ void GaleProcessor::setCurrentProgram (int i)
         if (auto* prm = apvts.getParameter (id))
             prm->setValueNotifyingHost (prm->convertTo0to1 (v));
     };
+    set ("blow", 1.0f);   // ein Preset schaltet den Wind immer ein
     set ("env", (float) pr.env);
     set ("gust", pr.gust);
     set ("autoGust", pr.autoGust);

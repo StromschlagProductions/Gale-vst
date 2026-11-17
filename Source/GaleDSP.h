@@ -25,7 +25,7 @@ constexpr float kPi = 3.14159265358979f;
 constexpr int kCtl = 16;               // Steuerwerte alle 16 Samples
 constexpr int kNumEnvs = 4;
 constexpr int kMaxGusts = 8;
-constexpr int kMaxHits = 24;
+constexpr int kMaxHits = 96;
 
 inline float finiteClamp (float x, float lo, float hi, float fallback) { return std::isfinite (x) ? std::clamp (x, lo, hi) : fallback; }
 inline double validRate (double x) { return std::isfinite (x) && x >= 8000 && x <= 384000 ? x : 48000; }
@@ -66,7 +66,7 @@ struct Filt
     void reset() { s1 = s2 = 0; }
     void set (float fc, float Q, float fs)
     {
-        fc = std::clamp (fc, 8.0f, 0.45f * fs);
+        fc = std::clamp (fc, 0.5f, 0.45f * fs);
         Q = std::max (Q, 0.3f);
         const float g = std::tan (kPi * fc / fs);
         k = 1.0f / Q;
@@ -112,6 +112,34 @@ struct SlowNoise
     void reset() { y = 0; }
 };
 
+// Tiefes, ungleichmaessiges Druck-Rauschen nach dem Kern von Airwindows "Noise" (Chris Johnson, MIT-Lizenz,
+// github.com/airwindows/airwindows, Lizenztext in THIRD_PARTY_NOTICES.md): eine Zufallsbewegung, die in unregelmaessigen Abstaenden (quadratische
+// Reste) wieder Richtung Null gezogen wird. Ergibt klumpige, physisch wirkende Druckschuebe statt glattem Rauschen.
+struct BrownWalk
+{
+    double a = 0;
+    bool up = true;
+    int64_t pos = 0, quad = 0;
+    float scale = 1, norm = 1;
+    void prepare (float fs) { scale = fs / 44100.0f; norm = 0.01503f; }
+    void reset (int64_t start) { a = 0; up = true; pos = start; quad = 0; }
+    inline float tick (Rng& r)
+    {
+        if (--quad < 0)
+        {
+            ++pos;
+            int64_t q = (pos * pos) % 170003; q *= q;
+            q %= 17011; q *= q;
+            q %= 1151;  q *= q;
+            q %= 397;
+            quad = (int64_t) ((float) (q + 8) * scale);
+            up = a < 0;   // Richtung Mitte
+        }
+        a += up ? r.uni() : -r.uni();
+        return (float) a * norm;
+    }
+};
+
 //==============================================================================
 // Parameter (alle von aussen steuerbar). Die letzten drei sind in Version 1 fest verdrahtet (kein Regler).
 struct Params
@@ -127,6 +155,7 @@ struct Params
     float gustShape = 0.5f;   // 0 = schneller Peitschenschlag, 1 = langes Anschwellen (fest 0,5)
     float sweep = 0.6f;       // Staerke der Stereo-Wanderung bei Boeen (fest)
     float rattle = 1.0f;      // Blech-Rappeln im Innenraum (fest)
+    bool blow = true;         // BLOW: Wind an/aus (weiches Ein- und Ausblenden)
 };
 
 // Boeenform: sanftes Anschwellen (sin^2), dann glattes Abklingen ((1+x)e^-x, ohne Knick am Gipfel)
@@ -154,17 +183,18 @@ struct EnvCfg { float fBase, fSpan, pw, ratio, Q, scale; };
 inline const EnvCfg& envCfg (int e)
 {
     static const EnvCfg cfg[kNumEnvs] = {
-        {  330.0f,  620.0f, 1.0f, 1.50f, 14.0f, 0.45f },   // Open: tiefes Stoehnen
-        {  650.0f, 1000.0f, 1.0f, 1.50f, 20.0f, 0.40f },   // Trees: leises Singen
-        {  210.0f,  760.0f, 1.2f, 1.52f, 24.0f, 1.00f },   // Rocks: Jaulen nach oben
-        { 1100.0f, 2600.0f, 0.9f, 1.34f, 45.0f, 1.00f } }; // Cracks: schneidendes Pfeifen
+        {  300.0f,  560.0f, 1.0f, 1.50f, 18.0f, 1.00f },   // Open: tiefes Stoehnen
+        {  560.0f,  900.0f, 1.0f, 1.50f, 22.0f, 0.75f },   // Trees: Singen in den Aesten
+        {  420.0f,  900.0f, 1.2f, 1.52f, 26.0f, 1.00f },   // Rocks: Jaulen nach oben, ueber dem hohlen Grundton
+        { 1100.0f, 2600.0f, 0.9f, 1.34f, 45.0f, 0.90f } }; // Cracks: schneidendes Pfeifen
     return cfg[std::clamp (e, 0, kNumEnvs - 1)];
 }
 
 // Pegelangleichung der Umgebungen (gemessen), damit ein Wechsel nicht lauter oder leiser wird
-constexpr float kEnvTrim[kNumEnvs] = { 1.0f, 0.53f, 0.85f, 0.83f };
+constexpr float kEnvTrim[kNumEnvs] = { 1.0f, 0.494f, 0.85f, 0.83f };
 constexpr float kBedTrim = 0.767f;    // BASE LEVEL in dB entspricht damit etwa der Lautheit (LUFS) des Grundwinds
 constexpr float kGustTrim = 0.74f;
+constexpr float kRattleGain = 1.6f;
 
 //==============================================================================
 struct Ctl   // Steuerwerte, die eine Stimme pro Kanal bekommt
@@ -183,12 +213,20 @@ struct Whistle
 // Eine Stimme = ein Umgebungs-Charakter in einer Schicht in einem Kanal
 struct Voice
 {
-    Filt f[4];
+    Filt f[4], mf[3];
     Whistle wh;
+    Rng mr { 1 };
     float g[4] = { 0, 0, 0, 0 };
-    float whAmp = 0, am = 1, depth = 0, nrm = 1;
+    float md[3] = { 0, 0, 0 }, mc[3] = { 1, 1, 1 };
+    float whAmp = 0, hn = 1, am = 1, nrm = 1;
 
-    void reset() { for (auto& x : f) x.reset(); wh.a.reset(); wh.b.reset(); }
+    void reset (uint32_t seed)
+    {
+        for (auto& x : f) x.reset();
+        for (auto& x : mf) x.reset();
+        wh.a.reset(); wh.b.reset();
+        mr = Rng (seed);
+    }
 
     void set (int env, const Ctl& c, float fs)
     {
@@ -205,22 +243,33 @@ struct Voice
             am = std::max (0.2f, 1.0f + 0.13f * c.slow);
             nrm = 1.0f / std::sqrt (g[0] * g[0] + g[1] * g[1] + g[2] * g[2] + g[3] * g[3]);
             break;
-        case 1:   // Trees & Scrub: Rascheln in Hochmitten
-            f[0].set (3000.0f + 2200.0f * S, 0.9f, fs);
-            f[1].set (1500.0f + 1200.0f * S, 0.8f, fs);
-            f[2].set (240.0f + 420.0f * S, 0.7f, fs);
-            f[3].set (16.0f, 0.7f, fs);
-            g[0] = 1.0f; g[1] = 0.6f; g[2] = 0.55f;
-            depth = 0.35f + 0.65f * S;
+        case 1:   // Trees & Scrub: Laubrauschen. Drei breite Baender (viele Blaetter, kein Einzelknistern), jedes mit
+                  // eigener, weicher Schwell-Kurve (verschiedene Aeste); bei Staerke schneller und tiefer bewegt
+        {
+            f[0].set (1300.0f + 500.0f * S, 0.55f, fs);
+            f[1].set (2700.0f + 900.0f * S, 0.65f, fs);
+            f[2].set (5200.0f + 800.0f * S, 0.8f, fs);
+            f[3].set (220.0f + 260.0f * S, 0.7f, fs);
+            g[0] = 1.0f; g[1] = 0.80f; g[2] = 0.30f; g[3] = 0.45f;
+            const float rate[3] = { 0.9f + 2.2f * S, 1.4f + 3.2f * S, 2.0f + 4.5f * S };
+            const float dep[3]  = { 0.30f + 0.40f * S, 0.30f + 0.38f * S, 0.25f + 0.30f * S };
+            for (int k = 0; k < 3; ++k)
+            {
+                mf[k].set (rate[k], 0.6f, fs);
+                md[k] = dep[k];
+                mc[k] = std::exp (-dep[k] * dep[k]);   // exp(d*x) mit x ~ N(0,1) hat Effektivwert exp(d^2)
+            }
             am = std::max (0.2f, 1.0f + 0.10f * c.slow);
-            nrm = 1.0f / std::sqrt ((g[0] * g[0] + g[1] * g[1]) * (1.0f + 0.56f * depth * depth) + g[2] * g[2]);
+            nrm = 1.0f / std::sqrt (g[0] * g[0] + g[1] * g[1] + g[2] * g[2] + g[3] * g[3]);
             break;
+        }
         case 2:   // Rocks & Canyon: hohl-resonant, jault bei Staerke nach oben
         {
             const float f1 = (150.0f + 620.0f * S) * (1.0f + 0.06f * c.mid);
-            f[0].set (f1, 8.0f, fs);
-            f[1].set (1.52f * f1, 10.0f, fs);
-            f[2].set (2.31f * f1, 13.0f, fs);
+            const float qh = 0.7f + 1.0f * c.howl;   // HOWL macht den hohlen Klang auch resonanter (jaulender)
+            f[0].set (f1, 8.0f * qh, fs);
+            f[1].set (1.52f * f1, 10.0f * qh, fs);
+            f[2].set (2.31f * f1, 13.0f * qh, fs);
             f[3].set (200.0f, 0.7f, fs);
             g[0] = 1.0f; g[1] = 0.75f; g[2] = 0.5f; g[3] = 0.5f;
             am = std::max (0.2f, 1.0f + 0.10f * c.slow);
@@ -236,9 +285,12 @@ struct Voice
             break;
         }
         // Heulen/Pfeifen (alle Umgebungen, Gewicht je Umgebung)
-        const float fw = (e.fBase + e.fSpan * std::pow (S, e.pw)) * (1.0f + 0.03f * c.mid + 0.008f * c.fast);
+        // Die Tonhoehe folgt der Staerke und wandert langsam (Stoehnen/Jaulen). HOWL aendert den Charakter, nicht die
+        // Lautheit: Rauschen und Ton werden gemeinsam normiert.
+        const float fw = (e.fBase + e.fSpan * std::pow (S, e.pw)) * (1.0f + 0.05f * c.mid + 0.015f * c.fast);
         wh.set (fw, e.Q, e.ratio, fs);
-        whAmp = c.howl * e.scale * 0.70f * std::pow (S, 1.3f) * std::clamp (0.55f + 0.45f * c.fast, 0.1f, 1.0f);
+        whAmp = c.howl * e.scale * (0.6f + 1.1f * S) * std::clamp (0.6f + 0.4f * c.fast, 0.15f, 1.0f);
+        hn = 1.0f / std::sqrt (1.0f + 1.3f * whAmp * whAmp);
     }
 
     // w: freies weisses Rauschen, wl: teilweise gemeinsames Rauschen fuer die Tiefen (wirkt weit, nicht phasig)
@@ -250,46 +302,52 @@ struct Voice
         case 0:  y = (g[0] * f[0].lp (wl) + g[1] * f[1].bp (w) + g[2] * f[2].lp (wl)) * am + g[3] * f[3].bp (w); break;
         case 1:
         {
-            const float r = std::fabs (f[3].lp (w));
-            const float m = lerp (1.0f, 0.35f + 0.95f * r, depth);
-            y = (g[0] * f[0].bp (w) + g[1] * f[1].bp (w)) * m * am + g[2] * f[2].lp (wl);
+            const float m0 = std::exp (md[0] * mf[0].lp (mr.white())) * mc[0];
+            const float m1 = std::exp (md[1] * mf[1].lp (mr.white())) * mc[1];
+            const float m2 = std::exp (md[2] * mf[2].lp (mr.white())) * mc[2];
+            y = (g[0] * f[0].bp (w) * m0 + g[1] * f[1].bp (w) * m1 + g[2] * f[2].bp (w) * m2) * am + g[3] * f[3].lp (wl);
             break;
         }
         case 2:  y = (g[0] * f[0].bp (w) + g[1] * f[1].bp (w) + g[2] * f[2].bp (w)) * am + g[3] * f[3].lp (wl); break;
         default: y = g[0] * f[0].bp (w) * am + g[1] * f[1].lp (wl); break;
         }
-        return (y * nrm + wh.tick (w) * whAmp) * kEnvTrim[env];
+        return (y * nrm + wh.tick (w) * whAmp) * hn * kEnvTrim[env];
     }
 };
 
-// Blech-Rappeln: kurze Anschlaege auf metallisch klingende, abklingende Resonanzen (Gehaeuse, Wellblech, Lamellen)
+// Blech-Rappeln: grosses Wellblech / Blechdach. Viele tiefe, lang klingende Eigenmoden (48 Hz ... 1 kHz), angeregt
+// durch Schlaege (Impuls fuer die Tiefe + kurzer Rauschstoss fuer das Scheppern). Eine weiche Saettigung laesst die
+// Bleche gegeneinander scheppern.
 struct Rattle
 {
-    static constexpr int N = 5;
-    float c1[N] {}, c2[N] {}, w[N] {}, y1[N] {}, y2[N] {};
+    static constexpr int N = 10;
+    float c1[N] {}, c2[N] {}, gi[N] {}, w[N] {}, y1[N] {}, y2[N] {};
     int cd[kMaxHits] {};
     float amp[kMaxHits] {};
     int count = 0;
-    Rng ev;
+    float exc = 0, excDecay = 0.99f;
+    Rng ev, nz;
 
     void prepare (float fs, float detune)
     {
-        static const float freq[N] = { 430.0f, 690.0f, 1090.0f, 1710.0f, 2570.0f };
-        static const float t60[N] = { 0.16f, 0.12f, 0.09f, 0.065f, 0.05f };
-        static const float wt[N] = { 1.0f, 0.8f, 0.7f, 0.5f, 0.35f };
+        static const float freq[N] = { 48.0f, 67.0f, 89.0f, 118.0f, 157.0f, 209.0f, 279.0f, 372.0f, 640.0f, 1050.0f };
+        static const float t60[N]  = { 1.10f, 0.95f, 0.80f, 0.65f, 0.52f, 0.42f, 0.33f, 0.26f, 0.16f, 0.10f };
+        static const float wt[N]   = { 1.00f, 0.95f, 0.90f, 0.80f, 0.70f, 0.60f, 0.50f, 0.40f, 0.22f, 0.12f };
         for (int i = 0; i < N; ++i)
         {
-            const float th = 2.0f * kPi * freq[i] * detune / fs;
+            const float th = 2.0f * kPi * std::min (freq[i] * detune, 0.4f * fs) / fs;
             const float r = std::exp (-6.9078f / (t60[i] * fs));
             c1[i] = 2.0f * r * std::cos (th);
             c2[i] = -r * r;
+            gi[i] = std::sin (th);   // Impulsantwort jeder Mode etwa Amplitude 1
             w[i] = wt[i];
         }
+        excDecay = std::exp (-1.0f / (0.006f * fs));
     }
     void reset()
     {
         for (int i = 0; i < N; ++i) y1[i] = y2[i] = 0;
-        count = 0;
+        count = 0; exc = 0;
     }
     void push (int delay, float a)
     {
@@ -298,26 +356,33 @@ struct Rattle
     }
     inline float tick()
     {
-        float in = 0;
+        float imp = 0;
         for (int i = 0; i < count;)
         {
             if (--cd[i] <= 0)
             {
-                in += amp[i];
+                imp += amp[i];
+                exc += 0.6f * std::fabs (amp[i]);
                 --count; cd[i] = cd[count]; amp[i] = amp[count];
             }
             else ++i;
         }
+        const float in = imp + exc * nz.bi();
+        exc *= excDecay;
         float out = 0;
         for (int i = 0; i < N; ++i)
         {
-            const float y = c1[i] * y1[i] + c2[i] * y2[i] + in * w[i];
+            const float y = c1[i] * y1[i] + c2[i] * y2[i] + in * gi[i];
             y2[i] = y1[i]; y1[i] = y;
             out += y * w[i];
         }
-        return out;
+        return std::tanh (0.6f * out);
     }
-    void flush() { for (int i = 0; i < N; ++i) { if (std::fabs (y1[i]) < 1e-20f) y1[i] = 0; if (std::fabs (y2[i]) < 1e-20f) y2[i] = 0; } }
+    void flush()
+    {
+        for (int i = 0; i < N; ++i) { if (std::fabs (y1[i]) < 1e-20f) y1[i] = 0; if (std::fabs (y2[i]) < 1e-20f) y2[i] = 0; }
+        if (exc < 1e-20f) exc = 0;
+    }
 };
 
 // Lineare Rampe ueber einen Steuerschritt (kein Zippern)
@@ -347,6 +412,8 @@ public:
         now = 0; phase = 0; primed = false; prevTrigger = false;
         nGusts = 0; act = 0;
         autoLeft = -1; env = 0;
+        walkC.prepare (fs); walkC.reset (271); rngWC = Rng (0x27D4EB2Fu);
+        onPos = 1.0f;
         rngC = Rng (0x7F4A7C15u); rngCG = Rng (0x5851F42Du); rngEv = Rng (0xC2B2AE35u);
         for (int e = 0; e < kNumEnvs; ++e) { wEnv[e] = e == 0 ? 1.0f : 0.0f; aEnv[e] = wEnv[e]; }
         for (int c = 0; c < 2; ++c)
@@ -354,12 +421,19 @@ public:
             auto& ch = chan[c];
             ch.rng = Rng (c == 0 ? 0x1234567u : 0x9E3779B9u);
             ch.rngG = Rng (c == 0 ? 0x2F6B8A1Du : 0x7B3C91E5u);
-            for (int e = 0; e < kNumEnvs; ++e) { ch.bed[e].reset(); ch.gst[e].reset(); }
+            for (int e = 0; e < kNumEnvs; ++e)
+            {
+                ch.bed[e].reset (0x68E31DA4u + 977u * (uint32_t) (e + 4 * c));
+                ch.gst[e].reset (0xB5297A4Du + 1009u * (uint32_t) (e + 4 * c));
+            }
+            ch.walk.prepare (fs); ch.walk.reset (c == 0 ? 11 : 4711);
+            ch.rngW = Rng (c == 0 ? 0x1B873593u : 0xCC9E2D51u);
             ch.lp1.reset(); ch.lp2.reset(); ch.sub.reset(); ch.crack.a.reset(); ch.crack.b.reset();
             for (auto& b : ch.boom) b.reset();
             ch.rat.prepare (fs, c == 0 ? 1.0f : 1.011f);
             ch.rat.reset();
             ch.rat.ev = Rng (c == 0 ? 0xA511E9B3u : 0x63D83595u);
+            ch.rat.nz = Rng (c == 0 ? 0x85EBCA6Bu : 0xC2B2AE3Du);
             ch.nSlow.reset(); ch.nMid.reset(); ch.nFast.reset();
             ch.nSlow.setHz (0.12f, tickRate); ch.nMid.setHz (0.8f, tickRate); ch.nFast.setHz (5.5f, tickRate);
             ch.nCtl = Rng (c == 0 ? 0x2545F491u : 0x4F6CDD1Du);
@@ -382,6 +456,7 @@ public:
         {
             if (phase == 0) tick();
             const float nC = rngC.white(), nCG = rngCG.white();
+            const float pC = walkC.tick (rngWC);
             for (int c = 0; c < 2; ++c)
             {
                 auto& ch = chan[c];
@@ -404,7 +479,9 @@ public:
                 float boom = ch.boom[0].bp (wl) + 0.8f * ch.boom[1].bp (wl) + 0.6f * ch.boom[2].bp (wl);
                 const float bg = ch.gBoom.next();
                 x += boom * bg;
-                x += ch.sub.lp (wl) * ch.gSub.next();
+                // Druck auf die Wand: Airwindows-Zufallsbewegung statt glattem Rauschen (eigener + gemeinsamer Anteil)
+                const float pw = 0.8f * ch.walk.tick (ch.rngW) + 0.6f * pC;
+                x += ch.sub.lpRaw (pw) * ch.gSub.next();
                 // Ritzen-Pfeifen (innen)
                 x += ch.crack.tick (w) * ch.gCrack.next();
                 // Blech-Rappeln
@@ -423,7 +500,8 @@ public:
 private:
     struct Channel
     {
-        Rng rng, rngG, nCtl;   // rng: Grundwind, rngG: Boeen-Schicht (unabhaengig, damit sich die Pegel sauber addieren)
+        Rng rng, rngG, nCtl, rngW;
+        BrownWalk walk;   // rng: Grundwind, rngG: Boeen-Schicht (unabhaengig, damit sich die Pegel sauber addieren)
         Voice bed[kNumEnvs], gst[kNumEnvs];
         Filt lp1, lp2, sub, boom[3];
         Whistle crack;
@@ -446,6 +524,7 @@ private:
         p.gustShape = finiteClamp (p.gustShape, 0, 1, 0.5f);
         p.sweep = finiteClamp (p.sweep, 0, 1, 0.6f);
         p.rattle = finiteClamp (p.rattle, 0, 2, 1);
+        p.blow = p.blow;
         return p;
     }
 
@@ -465,7 +544,7 @@ private:
 
     static float rateFor (float S)   // Rappel-Ereignisse pro Sekunde
     {
-        return S < 0.22f ? 0.0f : 6.0f * std::pow ((S - 0.22f) / 0.78f, 1.5f);
+        return S < 0.12f ? 0.0f : 4.5f * std::pow ((S - 0.12f) / 0.88f, 1.3f);
     }
 
     void tick()
@@ -476,6 +555,7 @@ private:
         if (! primed)
         {
             gustS = P.gust; shelS = P.shelter; howlS = P.howl; baseS = P.baseDb; outS = P.outDb; env = P.env;
+            onPos = P.blow ? 1.0f : 0.0f;
             for (int e = 0; e < kNumEnvs; ++e) { wEnv[e] = e == env ? 1.0f : 0.0f; }
         }
         gustS += (P.gust - gustS) * c;
@@ -483,6 +563,10 @@ private:
         howlS += (P.howl - howlS) * c;
         baseS += (P.baseDb - baseS) * c;
         outS += (P.outDb - outS) * c;
+        // BLOW: Wind blendet in ca. 1,5 s ein und klingt in ca. 2,5 s aus (wie ein Wind, der sich legt)
+        if (P.blow) onPos = std::min (1.0f, onPos + 1.0f / (1.5f * fsT));
+        else        onPos = std::max (0.0f, onPos - 1.0f / (2.5f * fsT));
+        const float onGain = onPos * onPos * (3.0f - 2.0f * onPos);
         env = P.env;
         for (int e = 0; e < kNumEnvs; ++e)
         {
@@ -557,7 +641,7 @@ private:
             for (int e = 0; e < kNumEnvs; ++e)
             {
                 if (wEnv[e] <= 0.0f) continue;
-                Ctl cb = ctl; cb.S = ch.Sb; cb.howl = 0;   // Grundwind pfeift nicht
+                Ctl cb = ctl; cb.S = ch.Sb; cb.howl = 0.8f * ctl.howl;   // Grundwind heult mit (etwas weniger)
                 ch.bed[e].set (e, cb, fs);
                 if (ch.gustOn) { Ctl cg = ctl; cg.S = S; ch.gst[e].set (e, cg, fs); }
             }
@@ -579,7 +663,7 @@ private:
             ch.boom[1].set (118.0f, 5.0f, fs);
             ch.boom[2].set (190.0f, 6.0f, fs);
             const float boomGain = R * bell * std::pow (S, 1.2f) * 0.6f * std::clamp (0.7f + 0.3f * ctl.fast, 0.2f, 1.2f);
-            ch.sub.set (38.0f, 0.7f, fs);
+            ch.sub.set (90.0f, 0.6f, fs);
             const float subGain = R * smoothstep (0.45f, 1.0f, sh) * (0.25f + 0.75f * std::pow (S, 1.1f)) * 0.5f;
 
             const float fCrack = 1300.0f + 1500.0f * std::pow (S, 0.9f);
@@ -588,31 +672,40 @@ private:
                                     std::clamp (0.55f + 0.45f * ctl.fast, 0.1f, 1.0f);
 
             // Rappeln: nur mit Abstand zum Freien (Shelter), Rate haengt an der Staerke
-            const float ratGate = smoothstep (0.15f, 0.70f, sh) * P.rattle;
+            const float ratGate = smoothstep (0.10f, 0.55f, sh) * (1.0f - 0.4f * smoothstep (0.75f, 1.0f, sh)) * P.rattle;
             const float rate = rateFor (S) * ratGate;
             if (rate > 0.0f && ch.rat.ev.uni() < rate * (float) kCtl / fs)
             {
                 auto& ev = ch.rat.ev;
-                const float base = (0.25f + 0.75f * std::pow (ev.uni(), 1.5f)) * (0.35f + 0.65f * S);
-                if (ev.uni() < 0.22f)   // Klappern: mehrere Aufschlaege, schneller und leiser werdend
+                const float base = (0.30f + 0.70f * std::pow (ev.uni(), 1.3f)) * (0.40f + 0.60f * S);
+                float at = (float) (int) (ev.uni() * kCtl);
+                if (ev.uni() < 0.6f)   // Schlackern: eine lose Platte schlaegt mehrmals in Folge an
                 {
-                    const int nHit = 3 + (int) (ev.uni() * 4.0f);
-                    float gap = 0.085f * fs, at = (float) (int) (ev.uni() * kCtl);
+                    const int nHit = 4 + (int) (ev.uni() * 10.0f * (0.5f + 0.5f * S));
+                    const float hz = 9.0f + 14.0f * ev.uni();
                     for (int h = 0; h < nHit; ++h)
                     {
-                        ch.rat.push ((int) at, base * std::pow (0.8f, (float) h) * (ev.bi() < 0 ? -1.0f : 1.0f));
-                        at += gap * (0.8f + 0.4f * ev.uni());
-                        gap *= 0.72f;
+                        const float env = std::sin (kPi * ((float) h + 0.5f) / (float) nHit);
+                        ch.rat.push ((int) at, base * (0.35f + 0.65f * env) * (ev.bi() < 0 ? -1.0f : 1.0f));
+                        at += fs / hz * (0.75f + 0.5f * ev.uni());
                     }
                 }
-                else ch.rat.push ((int) (ev.uni() * kCtl), base * (ev.bi() < 0 ? -1.0f : 1.0f));
+                else   // schwerer Schlag mit Nachfedern
+                {
+                    const float sg = ev.bi() < 0 ? -1.0f : 1.0f;
+                    ch.rat.push ((int) at, 1.4f * base * sg);
+                    at += (0.07f + 0.05f * ev.uni()) * fs;
+                    ch.rat.push ((int) at, -0.5f * base * sg);
+                    at += (0.05f + 0.04f * ev.uni()) * fs;
+                    ch.rat.push ((int) at, 0.25f * base * sg);
+                }
             }
-            const float ratGain = R * ratGate * 0.25f;
+            const float ratGain = R * ratGate * kRattleGain;
             ch.rat.flush();
             ch.lp1.flush(); ch.lp2.flush(); ch.sub.flush();
             for (auto& b : ch.boom) b.flush();
 
-            const float outG = dbToLin (outS);
+            const float outG = dbToLin (outS) * onGain;
             if (firstTick)
             {
                 ch.gBed.snap (baseLin); ch.gGust.snap (gustLin); ch.gExt.snap (extGain); ch.gBoom.snap (boomGain);
@@ -639,7 +732,9 @@ private:
     bool primed = false, prevTrigger = false;
     float gustS = 0.3f, shelS = 0, howlS = 0.5f, baseS = -32, outS = 0;
     float wEnv[kNumEnvs] {}, aEnv[kNumEnvs] {};
-    float act = 0;
+    float act = 0, onPos = 1.0f;
+    BrownWalk walkC;
+    Rng rngWC { 1 };
 };
 
 }   // namespace gale
