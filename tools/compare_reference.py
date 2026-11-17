@@ -4,14 +4,16 @@ import os
 import pathlib
 import subprocess
 import tempfile
+import array
 root = pathlib.Path(__file__).resolve().parent.parent
+subprocess.run([os.environ.get("CXX", "g++"), "--version"], check=True)
 with tempfile.TemporaryDirectory() as directory:
     work = pathlib.Path(directory)
     (work / "reference.h").write_bytes(subprocess.check_output(["git", "show", "8019da2:Source/GaleDSP.h"], cwd=root))
     files = []
     for label, header in [("before", work / "reference.h"), ("after", root / "Source/GaleDSP.h")]:
         executable = work / label
-        subprocess.run([os.environ.get("CXX", "g++"), "-O3", "-std=c++17", f'-DHEADER="{header}"',
+        subprocess.run([os.environ.get("CXX", "g++"), "-O3", "-std=c++17", "-ffp-contract=off", f'-DHEADER="{header}"',
                         str(root / "Tests/ReferenceRender.cpp"), "-o", str(executable)], check=True)
         output = work / (label + ".f32")
         subprocess.run([str(executable), str(output)], check=True)
@@ -21,7 +23,11 @@ with tempfile.TemporaryDirectory() as directory:
         while True:
             a, b = before.read(1024 * 1024), after.read(1024 * 1024)
             if a != b:
-                raise SystemExit(f"Audio differs in chunk starting at byte {size}")
+                aa, bb = array.array("f"), array.array("f")
+                aa.frombytes(a); bb.frombytes(b)
+                first = next((i for i, (x,y) in enumerate(zip(aa,bb)) if x != y), 0)
+                maximum = max(abs(x-y) for x,y in zip(aa,bb))
+                raise SystemExit(f"Audio differs at sample {size//4+first}: {aa[first]} vs {bb[first]}, max chunk error {maximum}")
             if not a:
                 break
             size += len(a)

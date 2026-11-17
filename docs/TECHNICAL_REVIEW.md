@@ -80,34 +80,37 @@ Taste, benachbarte kurze Klicks, Klickfolgen zwischen Callbacks, Reset und Prepa
 State-Metadaten, parallele Instanzen, gleichzeitiges Restore und Presetwechsel.
 Bestehende DSP-Tests prüfen u. a. fünf Abtastraten, Blockaufteilung, BLOW und Ausklingen.
 
-`compare_reference.py` vergleicht jedes Sample bei 22.050, 44.100, 48.000, 96.000 und
+`compare_reference.py` vergleicht mit deaktivierter FMA-Kontraktion (`-ffp-contract=off`)
+jedes Sample bei 22.050, 44.100, 48.000, 96.000 und
 192.000 Hz und allen vier Umgebungen über einen vollständigen BLOW-Aus-/Ein-Zyklus.
 Gemessen: **19.303.200 Kanal-Samples bitidentisch**. Das gilt für diese Testverläufe,
 nicht als Beweis für alle möglichen Signale oder einen subjektiven Hörtest.
+Andere Compiler-/FMA-Einstellungen können trotz gleicher Formeln minimale
+Rundungsunterschiede erzeugen; bitidentische Ausgabe wird dafür nicht versprochen.
 Die reparierten Triggerfälle sollen gegenüber 1.1 ausdrücklich anders reagieren.
 
 ## Performance und Grenzen
 
 Linux x86_64, GCC 14.2, `-O3`, FTZ/DAZ, fünf Läufe je Version in wechselnder
-Reihenfolge; Median der Prozess-CPU-Zeit für je 512.000 Samples bei 48 kHz.
+Reihenfolge; Median der Prozess-CPU-Zeit für je 2.560.000 Samples bei 48 kHz.
 Shelter 60 %, sonst Standardwerte, Eingang null. Rüst-/Eingangspufferarbeit im
-Benchmark ist mitgemessen; weitere Compilerarbeit lief parallel im Container.
+Benchmark ist mitgemessen; Zu Beginn lief der lokale pluginval-Lauf noch parallel im Container.
 Kleine Differenzen (insbesondere rund 1 %) sind nicht belastbar interpretierbar.
 
 | Umgebung | BLOW | 1.1 ms CPU | 1.2 ms CPU | Änderung |
 |---|---|---:|---:|---:|
-| Open Land | aus | 115.54 | 104.86 | -9.2 % |
-| Open Land | an | 112.61 | 105.49 | -6.3 % |
-| Trees | aus | 170.08 | 161.68 | -4.9 % |
-| Trees | an | 170.22 | 159.97 | -6.0 % |
-| Rocks | aus | 113.34 | 106.34 | -6.2 % |
-| Rocks | an | 113.92 | 104.35 | -8.4 % |
-| Cracks | aus | 97.71 | 96.64 | -1.1 % |
-| Cracks | an | 98.19 | 91.34 | -7.0 % |
+| Open Land | aus | 533.70 | 502.12 | -5.9 % |
+| Open Land | an | 539.24 | 491.76 | -8.8 % |
+| Trees | aus | 780.70 | 770.36 | -1.3 % |
+| Trees | an | 800.09 | 775.81 | -3.0 % |
+| Rocks | aus | 532.79 | 506.42 | -4.9 % |
+| Rocks | an | 531.45 | 503.60 | -5.2 % |
+| Cracks | aus | 483.06 | 446.11 | -7.6 % |
+| Cracks | an | 472.24 | 440.96 | -6.6 % |
 
-Aktiver Wind benötigt in diesen Messungen etwa 6–8 % weniger CPU. Es gibt keinen
-Nachweis geringerer maximaler Callback-Zeiten im Vollplugin. BLOW aus ist weiterhin
-kein CPU-Schlafmodus. Rohwerte: `docs/benchmark-results.json`.
+Aktiver Wind benötigt in diesen Messungen je nach Umgebung etwa 3–9 % weniger CPU.
+Es gibt keinen Nachweis geringerer maximaler Callback-Zeiten im Vollplugin.
+BLOW aus ist weiterhin kein CPU-Schlafmodus. Rohwerte: `docs/benchmark-results.json`.
 
 `tools/benchmark.cpp`
 lässt sich unverändert mit `-O3 -std=c++17` und `-DHEADER=\"/absoluter/Pfad/GaleDSP.h\"`
