@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "TestSupport.h"
 #include <memory>
+#include <thread>
 
 int main()
 {
@@ -133,6 +134,80 @@ int main()
         CHECK (p->activity.load() > -1.0f);
     }
 
+
+    // Actual output must match a reference engine with exactly the intended event count.
+    for (int channels : { 1, 2 })
+    for (int block : { 64, 8192, 32769 })
+    {
+        GaleProcessor proc;
+        auto buses = proc.getBusesLayout();
+        auto set = channels == 1 ? juce::AudioChannelSet::mono() : juce::AudioChannelSet::stereo();
+        buses.inputBuses.set (0, set); buses.outputBuses.set (0, set);
+        CHECK (proc.setBusesLayout (buses)); proc.prepareToPlay (48000, 64);
+        gale::Engine reference; reference.prepare (48000);
+        gale::Params params; params.trigger = false;
+        juce::AudioBuffer<float> b (channels, block);
+        std::vector<float> l ((size_t) block), r ((size_t) block);
+        auto* trigger = proc.apvts.getParameter ("trigger");
+        auto pulse = [&] { trigger->setValueNotifyingHost (1); trigger->setValueNotifyingHost (0); };
+        auto process = [&] (unsigned events)
+        {
+            b.clear(); std::fill (l.begin(), l.end(), 0); std::fill (r.begin(), r.end(), 0);
+            { NoAllocations guard; proc.processBlock (b, midi); }
+            reference.process (l.data(), r.data(), block, params, events);
+            for (int i = 0; i < block; ++i)
+            {
+                const auto at = (size_t) i;
+                const float expected = channels == 1 ? 0.70710678f * (l[at] + r[at]) : l[at];
+                CHECK (b.getSample (0, i) == expected);
+                if (channels == 2) CHECK (b.getSample (1, i) == r[at]);
+            }
+        };
+        trigger->setValueNotifyingHost (1); process (1); process (0); process (0);
+        trigger->setValueNotifyingHost (0); process (0);
+        pulse(); process (1); pulse(); process (1);
+        pulse(); pulse(); pulse(); process (3);
+        pulse(); proc.reset(); reference.reset(); process (0);
+        pulse(); proc.prepareToPlay (48000, 64); reference.prepare (48000); process (0);
+        CHECK (proc.getLatencySamples() == 0);
+    }
+    {
+        GaleProcessor first, second;
+        first.setCurrentProgram (4); first.uiTheme = 1; first.uiWidth = 1020; first.uiHeight = 630;
+        juce::MemoryBlock state; first.getStateInformation (state);
+        second.setStateInformation (state.getData(), (int) state.getSize());
+        CHECK (second.getCurrentProgram() == 4 && second.uiTheme == 1 && second.uiWidth == 1020);
+        second.setStateInformation ("invalid", 7); CHECK (second.uiWidth == 1020);
+        for (int i = 0; i < 5; ++i)
+        {
+            std::unique_ptr<juce::AudioProcessorEditor> a (first.createEditor()), b (second.createEditor());
+            a->setSize (680, 420); b->setSize (1360, 840);
+            CHECK (first.uiWidth == 680 && second.uiWidth == 1360);
+        }
+    }
+
+    // Parameter / state traffic while independent instances are processing.
+    {
+        GaleProcessor first, second; first.prepareToPlay (48000, 127); second.prepareToPlay (48000, 127);
+        juce::MemoryBlock saved; first.getStateInformation (saved);
+        std::thread audio ([&]
+        {
+            juce::AudioBuffer<float> b (2, 127); juce::MidiBuffer m;
+            for (int i = 0; i < 200; ++i)
+            {
+                b.clear(); { NoAllocations guard; first.processBlock (b, m); second.processBlock (b, m); }
+                for (int c = 0; c < 2; ++c) for (int n = 0; n < 127; ++n) CHECK (std::isfinite (b.getSample (c, n)));
+            }
+        });
+        for (int i = 0; i < 100; ++i)
+        {
+            first.setStateInformation (saved.getData(), (int) saved.getSize());
+            second.setCurrentProgram (i % second.getNumPrograms());
+            first.uiWidth = i % 2 ? 680 : 1020;
+            juce::MemoryBlock copy; first.getStateInformation (copy);
+        }
+        audio.join();
+    }
     CHECK (p->getTailLengthSeconds() > 0.0);
     std::puts ("Gale processor: layouts, passthrough, bounded callbacks, mono, state roundtrip, presets and click trigger passed");
 }
