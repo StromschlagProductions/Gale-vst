@@ -67,7 +67,6 @@ GaleProcessor::GaleProcessor()
       apvts (*this, nullptr, "GALE", createLayout())
 {
     pGust = apvts.getRawParameterValue ("gust");
-    pTrigger = apvts.getRawParameterValue ("trigger");
     pAuto = apvts.getRawParameterValue ("autoGust");
     pEnv = apvts.getRawParameterValue ("env");
     pShelter = apvts.getRawParameterValue ("shelter");
@@ -82,16 +81,30 @@ GaleProcessor::~GaleProcessor() { apvts.removeParameterListener ("trigger", this
 
 void GaleProcessor::parameterChanged (const juce::String&, float value)
 {
-    if (value > 0.5f) triggerLatch.store (true);
+    const bool high = value > 0.5f;
+    const bool wasHigh = triggerHigh.exchange (high);
+    if (high && ! wasHigh) triggerSerial.fetch_add (1, std::memory_order_release);
 }
 
 void GaleProcessor::prepareToPlay (double sampleRate, int maxBlock)
 {
     engine.prepare (sampleRate);
+    // Preserve 1.1 startup semantics for a held/automated high trigger, but discard
+    // old completed clicks from before the new playback lifecycle.
+    const bool held = apvts.getRawParameterValue ("trigger")->load() > 0.5f;
+    consumedTriggerSerial = triggerSerial.load (std::memory_order_acquire) - (held ? 1u : 0u);
+    activity.store (0.0f);
     const size_t n = (size_t) juce::jmax (maxBlock, 4096);
     scratchL.assign (n, 0.0f);
     scratchR.assign (n, 0.0f);
     setLatencySamples (0);
+}
+
+void GaleProcessor::reset()
+{
+    engine.reset();
+    consumedTriggerSerial = triggerSerial.load (std::memory_order_acquire);
+    activity.store (0.0f);
 }
 
 bool GaleProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -115,7 +128,10 @@ void GaleProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
     gale::Params p;
     p.gust = pGust->load();
     p.autoGust = pAuto->load();
-    p.trigger = pTrigger->load() > 0.5f || triggerLatch.exchange (false);
+    const uint32_t serial = triggerSerial.load (std::memory_order_acquire);
+    const unsigned events = std::min (serial - consumedTriggerSerial, (uint32_t) gale::kMaxGusts);
+    consumedTriggerSerial = serial;
+    p.trigger = false; // explicit events below; no synthetic falling edges at chunk boundaries
     p.env = juce::roundToInt (gale::finiteClamp (pEnv->load(), 0, gale::kNumEnvs - 1, 0));
     p.shelter = pShelter->load();
     p.howl = pHowl->load();
@@ -131,20 +147,18 @@ void GaleProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
         // Mono rein, Stereo raus: den Eingang auf beide Seiten legen, der Wind kommt dazu
         if (getTotalNumInputChannels() == 1)
             buffer.copyFrom (1, 0, buffer, 0, 0, numSamples);
-        engine.process (left, buffer.getWritePointer (1), numSamples, p);
+        engine.process (left, buffer.getWritePointer (1), numSamples, p, events);
     }
     else
     {
         // reine Mono-Spur: Wind links/rechts zusammenmischen (in vorreservierten Abschnitten)
         if (scratchL.empty()) { buffer.clear(); return; }
-        const bool trig = p.trigger;
         for (int offset = 0; offset < numSamples;)
         {
             const int count = std::min ((int) scratchL.size(), numSamples - offset);
             std::fill_n (scratchL.data(), count, 0.0f);
             std::fill_n (scratchR.data(), count, 0.0f);
-            p.trigger = trig && offset == 0;
-            engine.process (scratchL.data(), scratchR.data(), count, p);
+            engine.process (scratchL.data(), scratchR.data(), count, p, offset == 0 ? events : 0);
             for (int i = 0; i < count; ++i)
                 left[offset + i] += 0.70710678f * (scratchL[(size_t) i] + scratchR[(size_t) i]);
             offset += count;
@@ -186,15 +200,37 @@ void GaleProcessor::setCurrentProgram (int i)
 
 void GaleProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    if (auto xml = apvts.copyState().createXml())
+    auto state = apvts.copyState();
+    state.setProperty ("theme", uiTheme.load(), nullptr);
+    state.setProperty ("uiW", uiWidth.load(), nullptr);
+    state.setProperty ("uiH", uiHeight.load(), nullptr);
+    state.setProperty ("program", currentProgram.load(), nullptr);
+    if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
 }
 
 void GaleProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
-        if (xml->hasTagName (apvts.state.getType()))
-            apvts.replaceState (juce::ValueTree::fromXml (*xml));
+        if (xml->hasTagName ("GALE"))
+        {
+            auto state = juce::ValueTree::fromXml (*xml);
+            uiTheme.store ((int) state.getProperty ("theme", 0) == 1 ? 1 : 0);
+            const int width = juce::jlimit (340, 2040, (int) state.getProperty ("uiW", 680));
+            uiWidth.store (width);
+            uiHeight.store (juce::roundToInt ((float) width * 420.0f / 680.0f));
+            currentProgram.store (juce::jlimit (0, kNumPresets - 1, (int) state.getProperty ("program", 0)));
+            apvts.replaceState (state);
+            // JUCE 8 bool parameters may retain a non-canonical normalized host value
+            // although the APVTS raw value has already snapped to 0/1. Reassert on
+            // restore so the host cache and serialized boolean agree as well.
+            for (const auto* id : { "blow", "trigger" })
+            {
+                auto* parameter = apvts.getParameter (id);
+                const float canonical = apvts.getRawParameterValue (id)->load() > 0.5f ? 1.0f : 0.0f;
+                if (parameter->getValue() != canonical) parameter->setValueNotifyingHost (canonical);
+            }
+        }
 }
 
 juce::AudioProcessorEditor* GaleProcessor::createEditor() { return new GaleEditor (*this); }

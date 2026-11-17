@@ -4,9 +4,6 @@
 namespace
 {
 juce::String u8 (const char* s) { return juce::String (juce::CharPointer_UTF8 (s)); }
-const char* kThemeProp = "theme";   // 0 = dunkel, 1 = hell (wird mit dem Projekt gespeichert)
-const char* kUiWProp = "uiW";       // Fenstergroesse (wird mit dem Projekt gespeichert)
-const char* kUiHProp = "uiH";
 
 const char* kEnvShort[gale::kNumEnvs] = { "Open Land", "Trees", "Rocks", "Cracks" };
 const char* kEnvNote[gale::kNumEnvs] = {
@@ -59,7 +56,7 @@ static juce::AttributedString buildHelp (juce::Colour text, juce::Colour accent,
 
     head ("TRIGGER GUST");
     body ("Löst eine einzelne Böe aus, die anschwillt und wieder abklingt. Den Verlauf zeichnet GALE selbst. Der Taster ist auch ein Automationsparameter: Ein kurzer Sprung von 0 auf 1 setzt die Böe genau an die Stelle, zum Beispiel auf einen Satz im Dialog. Zum Einspielen die Automation auf Touch oder Write stellen, die Szene laufen lassen und im richtigen Moment klicken. Die LED leuchtet, solange eine Böe läuft.");
-    note ("Ein Automationssprung sollte mindestens etwa 50 ms lang sein, also länger als ein Audiopuffer. Ein Klick auf den Taster geht auch bei sehr kurzem Druck nicht verloren.");
+    note ("Kurze Klicks werden als Ereignisse vorgemerkt. Auch mehrere Klicks zwischen Audioblöcken bleiben bis zur maximalen Anzahl gleichzeitiger Böen erhalten. Automation wird an Audioblockgrenzen übernommen.");
 
     head ("AUTO GUST");
     body ("Lässt zufällig Böen vorbeiziehen, ohne dass du etwas zeichnen musst. Der Regler bestimmt, wie oft und wie kräftig (ganz links aus). Gezielte Böen mit TRIGGER GUST kommen zusätzlich dazu.");
@@ -102,7 +99,7 @@ GaleEditor::GaleEditor (GaleProcessor& p) : AudioProcessorEditor (&p), processor
         c->setFixedAspectRatio ((double) kBaseW / (double) kBaseH);
 
     logo = juce::ImageCache::getFromMemory (BinaryData::logo_png, BinaryData::logo_pngSize);
-    theme = (int) processor.apvts.state.getProperty (kThemeProp, 0) == 1 ? lightTheme() : darkTheme();
+    theme = processor.uiTheme.load() == 1 ? lightTheme() : darkTheme();
     setLookAndFeel (&look);
 
     setupKnob (gust, "gust", "GUST / INTENSITY");
@@ -152,7 +149,7 @@ GaleEditor::GaleEditor (GaleProcessor& p) : AudioProcessorEditor (&p), processor
     themeButton.onClick = [this]
     {
         theme = theme.dark ? lightTheme() : darkTheme();
-        processor.apvts.state.setProperty (kThemeProp, theme.dark ? 0 : 1, nullptr);
+        processor.uiTheme.store (theme.dark ? 0 : 1);
         applyTheme();
     };
     content.addAndMakeVisible (themeButton);
@@ -181,7 +178,7 @@ GaleEditor::GaleEditor (GaleProcessor& p) : AudioProcessorEditor (&p), processor
 
     applyTheme();
     // zuletzt gespeicherte Fenstergroesse wiederherstellen (sonst 100 %)
-    const int savedW = (int) processor.apvts.state.getProperty (kUiWProp, kBaseW);
+    const int savedW = processor.uiWidth.load();
     const int restoredW = juce::jlimit (kBaseW / 2, kBaseW * 3, savedW);
     setSize (restoredW, juce::roundToInt ((float) restoredW * (float) kBaseH / (float) kBaseW));
     sizeReady = true;
@@ -200,6 +197,10 @@ void GaleEditor::updateEnvButtons (int index)
 
 void GaleEditor::timerCallback()
 {
+    const bool wantsDark = processor.uiTheme.load() != 1;
+    if (theme.dark != wantsDark) { theme = wantsDark ? darkTheme() : lightTheme(); applyTheme(); }
+    const int width = processor.uiWidth.load();
+    if (getWidth() != width) setSize (width, juce::roundToInt ((float) width * kBaseH / kBaseW));
     const float a = processor.activity.load();
     const float lit = a > 0.04f ? juce::jlimit (0.0f, 1.0f, 0.35f + a) : 0.0f;
     if (std::abs (lit - triggerButton.led) > 0.02f)
@@ -342,8 +343,8 @@ void GaleEditor::resized()
 {
     if (sizeReady)
     {
-        processor.apvts.state.setProperty (kUiWProp, getWidth(), nullptr);
-        processor.apvts.state.setProperty (kUiHProp, getHeight(), nullptr);
+        processor.uiWidth.store (getWidth());
+        processor.uiHeight.store (getHeight());
     }
     uiScale = std::min ((float) getWidth() / kBaseW, (float) getHeight() / kBaseH);
     content.setTransform (juce::AffineTransform::scale (uiScale));

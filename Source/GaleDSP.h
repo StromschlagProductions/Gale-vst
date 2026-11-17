@@ -64,8 +64,12 @@ struct Filt
 {
     float s1 = 0, s2 = 0, a1 = 0, a2 = 0, a3 = 0, k = 1, nLP = 1, nBP = 1;
     void reset() { s1 = s2 = 0; }
+    // Coefficients have no history: identical inputs need no recalculation.
+    float cachedFc = -1, cachedQ = -1, cachedFs = -1;
     void set (float fc, float Q, float fs)
     {
+        if (fc == cachedFc && Q == cachedQ && fs == cachedFs) return;
+        cachedFc = fc; cachedQ = Q; cachedFs = fs;
         fc = std::clamp (fc, 0.5f, 0.45f * fs);
         Q = std::max (Q, 0.3f);
         const float g = std::tan (kPi * fc / fs);
@@ -444,9 +448,13 @@ public:
     }
 
     // Wind wird zum Eingang ADDIERT (der Eingang laeuft unveraendert durch). Zum reinen Erzeugen Nullen uebergeben.
-    void process (float* l, float* r, int n, const Params& pIn)
+    void process (float* l, float* r, int n, const Params& pIn, unsigned triggerEvents = 0)
     {
+        if (n <= 0) return;
         P = sanitize (pIn);
+        // Processor events are independent of a held parameter level / chunk boundaries.
+        for (unsigned event = 0; event < std::min (triggerEvents, (unsigned) kMaxGusts); ++event)
+            spawnGust (0.8f, rngEv.uni() < 0.5f ? -1.0f : 1.0f);
         // Trigger: steigende Flanke
         if (P.trigger && ! prevTrigger) spawnGust (0.8f, rngEv.uni() < 0.5f ? -1.0f : 1.0f);
         prevTrigger = P.trigger;
@@ -550,8 +558,8 @@ private:
     void tick()
     {
         const float fsT = tickRate;
-        const float c = 1.0f - std::exp (-1.0f / (fsT * 0.04f));          // ca. 40 ms
-        const float cE = 1.0f - std::exp (-1.0f / (fsT * 0.15f));         // Umgebungswechsel ca. 150 ms
+        const float c = 1.0f - std::exp (-1.0f / (fsT * 0.04f));
+        const float cE = 1.0f - std::exp (-1.0f / (fsT * 0.15f));
         if (! primed)
         {
             gustS = P.gust; shelS = P.shelter; howlS = P.howl; baseS = P.baseDb; outS = P.outDb; env = P.env;
