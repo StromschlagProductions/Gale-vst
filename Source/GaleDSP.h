@@ -408,8 +408,6 @@ public:
     {
         fs = (float) validRate (sampleRate);
         tickRate = fs / (float) kCtl;
-        smoothCoefficient = 1.0f - std::exp (-1.0f / (tickRate * 0.04f));
-        envCoefficient = 1.0f - std::exp (-1.0f / (tickRate * 0.15f));
         reset();
     }
 
@@ -560,8 +558,8 @@ private:
     void tick()
     {
         const float fsT = tickRate;
-        const float c = smoothCoefficient;
-        const float cE = envCoefficient;
+        const float c = 1.0f - std::exp (-1.0f / (fsT * 0.04f));
+        const float cE = 1.0f - std::exp (-1.0f / (fsT * 0.15f));
         if (! primed)
         {
             gustS = P.gust; shelS = P.shelter; howlS = P.howl; baseS = P.baseDb; outS = P.outDb; env = P.env;
@@ -731,8 +729,6 @@ private:
     }
 
     float fs = 48000.0f, tickRate = 3000.0f;
-    float smoothCoefficient = 1.0f - std::exp (-1.0f / (3000.0f * 0.04f));
-    float envCoefficient = 1.0f - std::exp (-1.0f / (3000.0f * 0.15f));
     Params P;
     Channel chan[2];
     Rng rngC { 1 }, rngCG { 1 }, rngEv { 1 };

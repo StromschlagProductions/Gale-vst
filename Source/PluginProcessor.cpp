@@ -218,6 +218,15 @@ void GaleProcessor::setStateInformation (const void* data, int sizeInBytes)
             uiHeight.store (juce::roundToInt ((float) width * 420.0f / 680.0f));
             currentProgram.store (juce::jlimit (0, kNumPresets - 1, (int) state.getProperty ("program", 0)));
             apvts.replaceState (state);
+            // JUCE 8 bool parameters may retain a non-canonical normalized host value
+            // although the APVTS raw value has already snapped to 0/1. Reassert on
+            // restore so the host cache and serialized boolean agree as well.
+            for (const auto* id : { "blow", "trigger" })
+            {
+                auto* parameter = apvts.getParameter (id);
+                const float canonical = apvts.getRawParameterValue (id)->load() > 0.5f ? 1.0f : 0.0f;
+                if (parameter->getValue() != canonical) parameter->setValueNotifyingHost (canonical);
+            }
         }
 }
 

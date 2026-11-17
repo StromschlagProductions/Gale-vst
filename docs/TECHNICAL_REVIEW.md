@@ -24,6 +24,11 @@ bestehenden XML-States (`GALE`). Latenz bleibt 0 Samples.
 - Preset-Index ist atomar und wird als zusätzliche State-Eigenschaft gespeichert.
   Alte States ohne diese Eigenschaft bleiben ladbar (Index 0, Parameter unverändert).
 
+- Beim State-Restore werden BLOW/Trigger zusätzlich auf kanonische 0/1-Werte
+  zurückgeführt. JUCE 8 kann sonst einen vom Host gesetzten Zwischenwert behalten,
+  obwohl der APVTS-Rohwert bereits auf denselben booleschen Zustand gerundet war.
+  Ein gezielter Test prüft 0.839735→1 und 0.14→0.
+
 ## Klang und BLOW
 
 Das BLOW-Verhalten wurde bewusst unverändert gelassen: laufende Engine ca. 2,5 s
@@ -37,8 +42,9 @@ deshalb aktiv; auch im stummen Zustand sparen nur nachweislich redundante Berech
 CPU. Keine verkürzten Fahnen, keine eingefrorenen/aufgestauten Rappel-Ereignisse.
 
 Optimiert wurden zustandslose Berechnungen: `Filt::set` verwendet bei exakt gleichen
-Frequenz-/Q-/Sampleratenwerten dieselben Koeffizienten weiter. Glättungskonstanten
-werden bei Prepare berechnet statt alle 16 Samples. Filterzustände, Rauschfolgen,
+Frequenz-/Q-/Sampleratenwerten dieselben Koeffizienten weiter. Die ursprüngliche Berechnung der
+Glättungskonstanten bleibt erhalten (eine Vorberechnung erzeugte bei einem anderen
+Compiler minimale Abweichungen und wurde verworfen). Filterzustände, Rauschfolgen,
 Steuerraster, BLOW-Kurve und Klangparameter bleiben erhalten.
 
 ## Threads und Echtzeit

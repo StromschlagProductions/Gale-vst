@@ -9,7 +9,7 @@ int main(){
   gale::Engine e;e.prepare(48000);gale::Params p;p.env=env;p.shelter=.6f;p.blow=on;
   float l[256]{},r[256]{};volatile float sum=0;
   auto t=std::clock();
-  for(int k=0;k<2000;k++){std::fill_n(l,256,0);std::fill_n(r,256,0);e.process(l,r,256,p);sum+=l[100];}
+  for(int k=0;k<10000;k++){std::fill_n(l,256,0);std::fill_n(r,256,0);e.process(l,r,256,p);sum+=l[100];}
   std::cout<<env<<","<<on<<","<<(1000.*(std::clock()-t)/CLOCKS_PER_SEC)<<","<<sum<<"\n";
  }
 }

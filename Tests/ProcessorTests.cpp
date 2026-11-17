@@ -186,6 +186,22 @@ int main()
         }
     }
 
+    // Host bool values inside the same snapped bin still need canonical restore.
+    for (const auto* id : { "blow", "trigger" })
+    {
+        GaleProcessor proc;
+        auto* parameter = proc.apvts.getParameter (id);
+        parameter->setValueNotifyingHost (1.0f);
+        juce::MemoryBlock state; proc.getStateInformation (state);
+        parameter->setValueNotifyingHost (0.839735f);
+        proc.setStateInformation (state.getData(), (int) state.getSize());
+        CHECK (parameter->getValue() == 1.0f);
+        parameter->setValueNotifyingHost (0.0f); proc.getStateInformation (state);
+        parameter->setValueNotifyingHost (0.14f);
+        proc.setStateInformation (state.getData(), (int) state.getSize());
+        CHECK (parameter->getValue() == 0.0f);
+    }
+
     // Parameter / state traffic while independent instances are processing.
     {
         GaleProcessor first, second; first.prepareToPlay (48000, 127); second.prepareToPlay (48000, 127);
