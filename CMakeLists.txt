@@ -85,8 +85,10 @@ if(BUILD_TESTING)
 endif()
 
 # Screenshot-Werkzeug fuer die README (nicht Teil des Standard-Builds): cmake --build build --target GaleScreenshot
-juce_add_console_app(GaleScreenshot PRODUCT_NAME "Gale screenshot" EXCLUDE_FROM_ALL)
+juce_add_console_app(GaleScreenshot PRODUCT_NAME "Gale screenshot")
 target_sources(GaleScreenshot PRIVATE tools/screenshot.cpp)
 target_include_directories(GaleScreenshot PRIVATE Source $<TARGET_PROPERTY:Gale,INCLUDE_DIRECTORIES>)
 target_compile_definitions(GaleScreenshot PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 PLUGIN_VERSION_TEXT="${GALE_VERSION}")
 target_link_libraries(GaleScreenshot PRIVATE Gale)
+
+set_target_properties(GaleScreenshot PROPERTIES EXCLUDE_FROM_ALL TRUE)
