@@ -91,6 +91,13 @@ Andere Compiler-/FMA-Einstellungen können trotz gleicher Formeln minimale
 Rundungsunterschiede erzeugen; bitidentische Ausgabe wird dafür nicht versprochen.
 Die reparierten Triggerfälle sollen gegenüber 1.1 ausdrücklich anders reagieren.
 
+Zusätzlicher lokaler Vergleich desselben Renderers mit GCC 14.2,
+`-O3 -march=x86-64-v3 -ffp-contract=fast`: maximale absolute Abweichung
+`1.4901161193847656e-7`, Fehlerenergie relativ zum Referenzsignal **−139,28 dB**.
+3.765.428 von 19.303.200 Kanal-Samples unterschieden sich durch Rundung. Diese
+Messung erklärt die eingeschränkte Bitidentitätsaussage; sie ist kein Hörtest.
+
+
 ## Performance und Grenzen
 
 Linux x86_64, GCC 14.2, `-O3`, FTZ/DAZ, fünf Läufe je Version in wechselnder
@@ -123,3 +130,19 @@ BLOW über längere Szenen aus-/einschalten, alte Projekte laden und mehrere Fen
 unabhängig bedienen. Native Fensterinteraktion und DAW-spezifische Abläufe ersetzt
 kein Test ohne Host. Es gibt weiterhin keine samplegenauen Triggerzeitstempel innerhalb
 eines Audioblocks; Ereignisse werden an dessen Anfang übernommen.
+
+## Validierungsstand
+
+Code: `5cdc1b54728a07bcd6a63dd9dc174752d312e707`.
+
+- Lokaler Linux-VST3-Debug-Build erfolgreich; DSP-/Prozessor-Regressionen bestanden.
+- Linux-pluginval Stufe 8 bestand mit dem zuvor auffälligen Seed `0x56eb4c7` nach
+  der booleschen Restore-Korrektur, erneut auch mit der abschließenden
+  Prepare-Kompatibilitätsergänzung.
+- Finale [Linux-CI](https://github.com/StromschlagProductions/Gale-vst/actions/runs/44166939900):
+  exakter Referenzvergleich sowie ASan/UBSan bestanden.
+- Finale [Windows-CI](https://github.com/StromschlagProductions/Gale-vst/actions/runs/44166940014):
+  VST3-Release-Build, DSP-/Prozessor-Regressionen, pluginval Stufe 8 und ZIP-Erstellung
+  bestanden; Veröffentlichungsschritt übersprungen.
+
+Keine Veröffentlichung und kein Merge im Rahmen dieser Überarbeitung.
