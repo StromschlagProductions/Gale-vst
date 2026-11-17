@@ -1,0 +1,138 @@
+#pragma once
+#include "PluginProcessor.h"
+
+// Onboard-Hilfe: formatierter Text (Ueberschriften fett in Akzentfarbe), scrollbar in einem Viewport
+class HelpView : public juce::Component
+{
+public:
+    void setAttributed (const juce::AttributedString& s, juce::Colour background)
+    {
+        text = s; bg = background; relayout();
+    }
+    void setWidth (int w)
+    {
+        if (w != laidOutW) { laidOutW = w; relayout(); }
+    }
+    void paint (juce::Graphics& g) override
+    {
+        // transparent: der abgerundete Hintergrund kommt vom HelpPanel
+        tl.draw (g, getLocalBounds().toFloat().reduced (14.0f, 10.0f));
+    }
+private:
+    void relayout()
+    {
+        const int w = juce::jmax (120, laidOutW);
+        tl.createLayout (text, (float) (w - 28));
+        setSize (w, (int) std::ceil (tl.getHeight()) + 24);
+        repaint();
+    }
+    juce::AttributedString text;
+    juce::TextLayout tl;
+    juce::Colour bg;
+    int laidOutW = 0;
+};
+
+// Hilfe-Flaeche: Viewport mit abgerundetem Hintergrund (passt auf die Kartenflaeche darunter)
+class HelpPanel : public juce::Viewport
+{
+public:
+    juce::Colour fill, edge;
+    void paint (juce::Graphics& g) override
+    {
+        auto r = getLocalBounds().toFloat();
+        g.setColour (fill);
+        g.fillRoundedRectangle (r, 8.0f);
+        g.setColour (edge);
+        g.drawRoundedRectangle (r.reduced (0.5f), 8.0f, 1.0f);
+    }
+};
+
+// TRIGGER GUST: solange gedrueckt, steht der Automationsparameter auf 1; die LED zeigt laufende Boeen
+class GustButton : public juce::TextButton
+{
+public:
+    std::function<void (bool)> onPress;
+    float led = 0.0f;   // 0..1
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        auto r = getLocalBounds().toFloat().reduced (0.5f);
+        const auto accent = findColour (juce::TextButton::buttonOnColourId);
+        auto base = findColour (juce::TextButton::buttonColourId);
+        g.setColour (down ? accent.withAlpha (0.35f) : over ? base.brighter (0.08f) : base);
+        g.fillRoundedRectangle (r, 6.0f);
+        g.setColour (down ? accent : findColour (juce::ComboBox::outlineColourId));
+        g.drawRoundedRectangle (r, 6.0f, down ? 2.0f : 1.0f);
+
+        const float cy = r.getCentreY();
+        const auto c = juce::Point<float> (r.getX() + 24.0f, cy);
+        const float lit = juce::jmax (led, down ? 1.0f : 0.0f);
+        g.setColour (findColour (juce::ComboBox::outlineColourId));
+        g.fillEllipse (c.x - 8.0f, c.y - 8.0f, 16.0f, 16.0f);
+        g.setColour (accent.withAlpha (0.18f + 0.82f * lit));
+        g.fillEllipse (c.x - 6.0f, c.y - 6.0f, 12.0f, 12.0f);
+        if (lit > 0.05f)
+        {
+            g.setColour (accent.withAlpha (0.35f * lit));
+            g.drawEllipse (c.x - 10.0f, c.y - 10.0f, 20.0f, 20.0f, 2.0f);
+        }
+
+        g.setColour (findColour (juce::TextButton::textColourOffId));
+        g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
+        g.drawText ("TRIGGER GUST", getLocalBounds().withTrimmedLeft (44), juce::Justification::centredLeft);
+    }
+    void buttonStateChanged() override
+    {
+        const bool d = isDown();
+        if (d != wasDown) { wasDown = d; if (onPress) onPress (d); }
+    }
+private:
+    bool wasDown = false;
+};
+
+class GaleEditor : public juce::AudioProcessorEditor, private juce::Timer
+{
+public:
+    explicit GaleEditor (GaleProcessor&);
+    ~GaleEditor() override;
+    void paint (juce::Graphics&) override;
+    void resized() override;
+
+private:
+    using APVTS = juce::AudioProcessorValueTreeState;
+    struct Knob
+    {
+        juce::Slider slider; juce::Label label;
+        std::unique_ptr<APVTS::SliderAttachment> attachment;
+    };
+    struct Theme { juce::Colour bg, panel, accent, text, dim, line; bool dark; };
+
+    void setupKnob (Knob&, const juce::String& paramId, const juce::String& text);
+    void applyTheme();
+    void updateEnvButtons (int index);
+    void timerCallback() override;
+    static Theme darkTheme();
+    static Theme lightTheme();
+
+    static constexpr int kBaseW = 680, kBaseH = 420;
+
+    GaleProcessor& processor;
+    juce::LookAndFeel_V4 look;
+    juce::Component content;      // feste 680x420-Flaeche, wird skaliert
+    float uiScale = 1.0f;
+    Theme theme;
+    bool sizeReady = false;   // erst nach dem Wiederherstellen der Groesse Fenstergroesse speichern
+    juce::Image logo;
+
+    Knob gust, shelter, howl, baseLevel, autoGust, output;
+    juce::TextButton envButtons[gale::kNumEnvs];
+    juce::Label envLabel, envNote, triggerNote;
+    std::unique_ptr<juce::ParameterAttachment> envAttachment;
+    GustButton triggerButton;
+    juce::TextButton themeButton;
+    juce::TextButton helpButton;
+    HelpPanel helpScroll;
+    HelpView helpText;
+    juce::TooltipWindow tooltipWindow { this, 400 };
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GaleEditor)
+};
