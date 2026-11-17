@@ -37,7 +37,10 @@ jobs:
         shell: pwsh
         run: |
           $v = (Get-Content VERSION -TotalCount 1).Trim()
+          if ($v -notmatch '^(0|[1-9][0-9]*)\.[0-9]$') { throw "VERSION muss dem Schema 1.0 ... 1.9, 2.0 ... folgen" }
           "GALE_VERSION=$v" >> $env:GITHUB_ENV
+          "ZIP_NAME=Gale-v$v-Windows-VST3.zip" >> $env:GITHUB_ENV
+          if (-not (Test-Path "docs/releases/$v.md")) { throw "Release-Hinweise fuer $v fehlen" }
 
       # Schnell scheitern, bevor die Bauminuten verbraucht werden
       - name: Release vorab pruefen
@@ -60,6 +63,20 @@ jobs:
       - name: Bauen
         run: cmake --build build --config Release --parallel
 
+      - name: Gebaute VST3-Version pruefen
+        shell: pwsh
+        run: |
+          $bundle = "build/Gale_artefacts/Release/VST3/Gale.vst3"
+          $metadata = Get-Content "$bundle/Contents/Resources/moduleinfo.json" -Raw
+          $match = [regex]::Match($metadata, '"Version"\s*:\s*"([^"]+)"')
+          $allowed = '^' + [regex]::Escape($env:GALE_VERSION) + '(\.0){0,2}$'
+          if (-not $match.Success -or $match.Groups[1].Value -notmatch $allowed) { throw "VST3-Metadaten passen nicht zu VERSION" }
+          $native = (Get-Item "$bundle/Contents/x86_64-win/Gale.vst3").VersionInfo
+          foreach ($value in @($native.FileVersion, $native.ProductVersion)) {
+            if ($value -notmatch $allowed) { throw "Windows-Binaerversion $value passt nicht zu VERSION" }
+          }
+          Write-Host "VST3 und Windows-Binaerdatei entsprechen $env:GALE_VERSION"
+
       - name: Regressionstests
         run: ctest --test-dir build -C Release --output-on-failure
 
@@ -81,15 +98,15 @@ jobs:
 
       - name: ZIP packen
         shell: pwsh
-        run: Compress-Archive -Path "build/Gale_artefacts/Release/VST3/Gale.vst3","THIRD_PARTY_NOTICES.md" -DestinationPath "Gale-VST3-Windows.zip"
+        run: Compress-Archive -Path "build/Gale_artefacts/Release/VST3/Gale.vst3","THIRD_PARTY_NOTICES.md" -DestinationPath "$env:ZIP_NAME"
 
       - name: Release mit ZIP erstellen
         if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ env.GALE_VERSION }}-b${{ github.run_number }}
+          tag_name: v${{ env.GALE_VERSION }}
           name: Gale v${{ env.GALE_VERSION }}
           make_latest: true
           files: |
-            Gale-VST3-Windows.zip
+            ${{ env.ZIP_NAME }}
           body_path: docs/releases/${{ env.GALE_VERSION }}.md

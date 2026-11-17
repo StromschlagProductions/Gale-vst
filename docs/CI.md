@@ -11,7 +11,7 @@ Alle Plugin-Repos sind öffentlich, die Actions-Minuten spielen keine Rolle. Des
 
 1. Lokal oder im Branch entwickeln. Die Versionsnummer in `VERSION` bei jeder Änderung hochzählen.
 2. Nach dem Merge in `main` baut und prüft GitHub automatisch; das Plugin liegt als Artefakt („Gale-VST3-Windows“) zum Herunterladen bereit.
-3. Zur Veröffentlichung: GitHub > Actions > „Windows-VST3 bauen“ > „Run workflow“ (Branch `main`) mit Haken **publish**. Das erstellt das Release `v<VERSION>-b<Lauf>` mit `Gale-VST3-Windows.zip` und setzt den Download-Link der README („latest“) auf die neue Version. Dafür muss `docs/releases/<VERSION>.md` (Release-Hinweise) vorhanden sein; fehlt sie, bricht der Lauf nach Sekunden ab.
+3. Zur Veröffentlichung: GitHub > Actions > „Windows-VST3 bauen“ > „Run workflow“ (Branch `main`) mit Haken **publish**. Das erstellt das Release `v<VERSION>` mit `Gale-v<VERSION>-Windows-VST3.zip` und setzt den Download-Link der README („latest“) auf die neue Version. Dafür muss `docs/releases/<VERSION>.md` (Release-Hinweise) vorhanden sein; fehlt sie, bricht der Lauf nach Sekunden ab.
 
 Es wird nie automatisch ein Release erstellt.
 
@@ -28,3 +28,5 @@ python3 tools/analyze.py hoerbeispiele/ --plots hoerbeispiele/plots
 # komplettes Plugin
 cmake -S . -B build && cmake --build build --config Release && ctest --test-dir build -C Release --output-on-failure
 ```
+
+Verbindliches öffentliches Versionsschema: `docs/VERSIONING.md` (ohne Build-Suffix).
