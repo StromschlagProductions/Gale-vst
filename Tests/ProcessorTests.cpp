@@ -169,6 +169,8 @@ int main()
         pulse(); pulse(); pulse(); process (3);
         pulse(); proc.reset(); reference.reset(); process (0);
         pulse(); proc.prepareToPlay (48000, 64); reference.prepare (48000); process (0);
+        trigger->setValueNotifyingHost (1);
+        proc.prepareToPlay (48000, 64); reference.prepare (48000); process (1); process (0);
         CHECK (proc.getLatencySamples() == 0);
     }
     {

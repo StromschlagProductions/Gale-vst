@@ -89,7 +89,10 @@ void GaleProcessor::parameterChanged (const juce::String&, float value)
 void GaleProcessor::prepareToPlay (double sampleRate, int maxBlock)
 {
     engine.prepare (sampleRate);
-    consumedTriggerSerial = triggerSerial.load (std::memory_order_acquire);
+    // Preserve 1.1 startup semantics for a held/automated high trigger, but discard
+    // old completed clicks from before the new playback lifecycle.
+    const bool held = apvts.getRawParameterValue ("trigger")->load() > 0.5f;
+    consumedTriggerSerial = triggerSerial.load (std::memory_order_acquire) - (held ? 1u : 0u);
     activity.store (0.0f);
     const size_t n = (size_t) juce::jmax (maxBlock, 4096);
     scratchL.assign (n, 0.0f);

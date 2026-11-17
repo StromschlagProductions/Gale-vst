@@ -16,8 +16,10 @@ bestehenden XML-States (`GALE`). Latenz bleibt 0 Samples.
   Maximal acht Ereignisse pro Callback werden verarbeitet, passend zu acht Stimmen;
   mehr zwischen zwei Callbacks werden bewusst begrenzt. Keine Allokation und kein
   unbeschränktes Abarbeiten einer Warteschlange. Ein gehaltener Pegel ist ein Ereignis.
-- Reset/Prepare übernehmen den aktuellen Zählerstand: alte Klicks starten nach dem
-  Reset keine neue Böe. Ein weiterhin gehaltener Taster muss erst losgelassen werden.
+- Reset übernimmt den aktuellen Zählerstand: alte Klicks starten nach dem Reset
+  keine neue Böe. Nach Reset muss ein gehaltener Taster erst losgelassen werden.
+  Prepare verwirft abgeschlossene alte Klicks, übernimmt aber einen aktuell hohen
+  Trigger wie 1.1 als einmaliges Startereignis (auch bei geladenem State/Automation).
 - Fensterdaten greifen nicht mehr direkt auf den bei Restore austauschbaren APVTS-
   ValueTree zu. Theme und Größe sind atomare Metadaten; beim Speichern werden sie in
   eine State-Kopie geschrieben. Die Oberfläche übernimmt Restore im GUI-Timer.
