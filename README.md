@@ -122,6 +122,7 @@ dahin wird der Wind dumpfer, das Wummern der Wand kommt, zuletzt das tiefe Groll
 
 Die Versionsnummer steht in der Datei `VERSION`, im Plugin-Kopf und im Namen der Release. Sie wird bei jeder Änderung hochgezählt (1.0, 1.1, 1.2 …).
 
+- **1.4** – Lizenzhinweis liegt im Plugin-Ordner (`Contents/Resources`) statt neben dem ZIP-Inhalt; Klang und Projektkompatibilität unverändert. [Release-Hinweise](docs/releases/1.4.md).
 - **1.3** – Einheitliche öffentliche Versionsnummer ohne Build-Suffix; Audioverarbeitung und Projektkompatibilität unverändert. [Release-Hinweise](docs/releases/1.3.md).
 - **1.2** – Zuverlässige Trigger auch bei großen Monoblöcken und schnellen Klickfolgen, sichere Fenster-Metadaten und weniger redundante Filterberechnungen. BLOW-Verlauf und Klang bleiben erhalten, weiterhin 0 ms Latenz. [Technische Prüfung](docs/TECHNICAL_REVIEW.md).
 - **1.1** – BLOW (Wind an/aus mit weichem Ein- und Ausblenden), Trees neu als weiches Blätterrauschen, HOWL deutlich hörbar, Blech-Rappeln als großes, tiefes Wellblech, Druck auf die Wände nach dem Rauschkern von Airwindows „Noise“. [Release-Hinweise](docs/releases/1.1.md).
