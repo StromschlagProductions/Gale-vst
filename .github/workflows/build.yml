@@ -110,7 +110,12 @@ jobs:
 
       - name: ZIP packen
         shell: pwsh
-        run: Compress-Archive -Path "build/Gale_artefacts/Release/VST3/Gale.vst3","THIRD_PARTY_NOTICES.md" -DestinationPath "$env:ZIP_NAME"
+        run: |
+          # Lizenzhinweis liegt im Plugin-Ordner selbst, damit er beim Kopieren immer mitkommt
+          $res = "build/Gale_artefacts/Release/VST3/Gale.vst3/Contents/Resources"
+          New-Item -ItemType Directory -Force -Path $res | Out-Null
+          Copy-Item THIRD_PARTY_NOTICES.md -Destination $res
+          Compress-Archive -Path "build/Gale_artefacts/Release/VST3/Gale.vst3" -DestinationPath "$env:ZIP_NAME"
 
       - name: Release mit ZIP erstellen
         if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'

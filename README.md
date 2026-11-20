@@ -130,7 +130,7 @@ Die Versionsnummer steht in der Datei `VERSION`, im Plugin-Kopf und im Namen der
 ## Aufbau
 
 - `Source/GaleDSP.h`: Klang-Engine (reines C++ ohne JUCE, samplefrei)
-- `THIRD_PARTY_NOTICES.md`: Lizenztext für den übernommenen Airwindows-Rauschkern
+- `THIRD_PARTY_NOTICES.md`: Lizenztext für den übernommenen Airwindows-Rauschkern (liegt im Download im Plugin-Ordner unter `Contents/Resources`)
 - `Source/PluginProcessor.*`, `Source/PluginEditor.*`: JUCE-Plugin und Oberfläche
 - `tools/render_demo.cpp`, `tools/analyze.py`: rendert Hörbeispiele aus der echten Engine und misst sie (Lautheit, Spitze, Stereo/Mono, Spektrogramme)
 - `.github/workflows/build.yml`: Windows-Bau mit Tests und Stabilitätstest (pluginval) bei jeder Änderung; Release nur von Hand mit Haken „publish“, siehe [docs/CI.md](docs/CI.md) und [docs/PUBLISHING.md](docs/PUBLISHING.md)
